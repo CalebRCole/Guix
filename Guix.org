@@ -1,0 +1,577 @@
+#+TITLE: GNU Guix Configuration
+
+This is my configuration for GNU Guix, a declarative Linux distribution by the GNU project that is functionally similar to NixOS, but using GNU Guile (a Scheme implementation) as its language of choice, among some other minor differences. This org contains org-babel blocks of Guile source code that are tangled into the actual project directory, allowing for a literate configuration akin to my Emacs configuration. This configuration also makes use of modular design to break files into more parse-able and editable chunks, similar to NixOS' dendritic design patterns.
+
+* Config
+
+Inside this directory lies all the Guile code used within the Guix configuration. No actual code (besides this org document) should be in the directory directly, but instead in the sub-directories.
+
+** System
+
+System contains all the configurations for the various different hosts that will be running GNU Guix on them. The general theme of their names is currently based around the species names for Wildebeests (AKA the Gnu).
+
+Note that nonguix is used to provide the full Linux kernel as well as unfree packages and drivers, so the default Guix image will not suffice if using it to create a system.
+
+Also, passwords should be set imperatively using =passwd= for both root and user.
+
+*** Services
+
+Services defines all system-wide GNU Shepherd (GNU systemd equivalent) services.
+
+#+begin_src scheme
+  (define-module (config services service))
+#+end_src
+
+*** channels
+
+This file contains the channels used to populate Guix and provide packages/updates.
+
+#+begin_src scheme :tangle "./config/system/channels.scm"
+  (define-module (channels)
+    #:use-module (guix channels)
+    #:export (channels))
+
+  (list (channel
+         (name 'guix)
+         (url "https://git.guix.gnu.org/guix.git")
+         (branch "master")
+         (introduction
+          (make-channel-introduction
+           "9edb3f66fd807b096b48283debdcddccfea34bad"
+           (openpgp-fingerprint
+            "BBB0 2DDF 2CEA F6A8 0D1D  E643 A2A0 6DF2 A33A 54FA"))))
+        (channel
+         (name 'nonguix)
+         (url "https://gitlab.com/nonguix/nonguix")
+         (branch "master")
+         (introduction
+          (make-channel-introduction
+           "897c1a470da759236cc11798f4e0a5f7d4d59fbc"
+           (openpgp-fingerprint
+            "2A39 3FFF 68F4 EF7A 3D29  12AF 6F51 20A0 22FB B2D5"))))
+        (channel
+         (name 'myguix)
+         (url "https://github.com/CalebRCole/MyGuix.git")
+         (branch "main")))
+#+end_src
+
+*** base-system
+
+This file serves as a base module to be imported into other systems to reduce their boilerplate.
+
+#+begin_src scheme :tangle "./config/system/base-system.scm"
+  (define-module (base-system)
+    #:use-module (guix)
+    #:use-module (gnu)
+    #:use-module ((nongnu packages linux) #:prefix nongnu:)
+    #:use-module (nongnu system linux-initrd)
+    #:export (base-system))
+
+  (use-service-modules cups desktop networking ssh xorg)
+  (use-package-modules bootloaders certs shells emacs base version-control wm)
+
+  (define base-system
+    (operating-system
+     (kernel nongnu:linux)
+     (initrd microcode-initrd)
+     (firmware (list nongnu:linux-firmware))
+     (locale "en_US.utf8")
+     (timezone "America/Detroit")
+     (keyboard-layout (keyboard-layout "us"))
+     (host-name "Base")
+     
+     ;; 'root' is implicit
+     (users (cons* (user-account
+                    (name "ccole")
+                    (comment "Caleb Cole")
+                    (group "users")
+                    (home-directory "/home/ccole")
+                    (supplementary-groups '("wheel" "netdev" "audio" "video")))
+                   %base-user-accounts))
+
+     (services
+      (append (list (service gnome-desktop-service-type)
+                    ;; To configure OpenSSH, pass an 'openssh-configuration'
+                    ;; record as a second argument to 'service' below.
+                    (service openssh-service-type)
+                    (service tor-service-type)
+                    (service cups-service-type)
+                    (set-xorg-configuration
+                     (xorg-configuration (keyboard-layout keyboard-layout))))
+  	    %desktop-services))
+
+     (bootloader (bootloader-configuration
+  		(bootloader grub-efi-bootloader)
+  		(targets (list "/boot/efi"))
+  		(keyboard-layout keyboard-layout)))
+
+     (initrd-modules (append '("vmd") %base-initrd-modules))
+
+     (file-systems %base-file-systems)
+
+     (packages %base-packages)))
+#+end_src
+
+*** taurinus
+
+Named after the Blue Wildebeest /Connochaetes Taurinus/, Taurinus is for my laptops.
+
+**** Alpha
+
+The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
+
+#+begin_src scheme :tangle "./config/system/taurinus-alpha.scm"
+  (define-module (taurinus)
+    #:use-module (gnu)
+    #:use-module (guix)
+    #:use-module (guix transformations)
+    #:use-module (gnu services pm)
+    #:use-module ((nongnu packages linux) #:prefix nongnu:)
+    #:use-module (nongnu system linux-initrd)
+    #:use-module (gnu packages emacs)
+    #:use-module (gnu packages emacs-xyz)
+    #:use-module (base-system))
+
+  (operating-system
+   (inherit base-system)
+   (host-name "taurinus")
+
+   (mapped-devices (list (mapped-device
+                          (source (uuid
+                                   "8d598765-ccb3-4ba1-97aa-ef8f93d6929f"))
+                          (target "cryptroot")
+                          (type luks-device-mapping))
+                         (mapped-device
+                          (source (uuid
+                                   "7c58044f-ab80-43bf-9c77-3d52dd95558e"))
+                          (target "crypthome")
+                          (type luks-device-mapping))))
+
+   (file-systems (cons* (file-system
+                         (mount-point "/boot/efi")
+                         (device (uuid "FB3D-B7E6"
+                                       'fat32))
+                         (type "vfat"))
+                        (file-system
+                         (mount-point "/")
+                         (device "/dev/mapper/cryptroot")
+                         (type "ext4")
+                         (dependencies mapped-devices))
+                        (file-system
+                         (mount-point "/home")
+                         (device "/dev/mapper/crypthome")
+                         (type "ext4")
+                         (dependencies mapped-devices))
+          	      %base-file-systems))
+
+   (services
+    (append (list
+  	   (service tlp-service-type
+  		    (tlp-configuration
+  		     (cpu-boost-on-ac? #t)
+  		     (wifi-pwr-on-bat? #t))))
+  	  (operating-system-user-services base-system)))
+
+   (packages
+    (append '()
+  	  (list emacs-exwm)
+  	  (operating-system-packages base-system))))
+#+end_src
+
+**** Herd
+
+The configuration for other laptops besides my daily driver.
+
+#+begin_src scheme :tangle "./config/system/taurinus-herd.scm"
+  (define-module (taurinus)
+    #:use-module (gnu)
+    #:use-module (guix)
+    #:use-module (guix transformations)
+    #:use-module (gnu services pm)
+    #:use-module ((nongnu packages linux) #:prefix nongnu:)
+    #:use-module (nongnu system linux-initrd)
+    #:use-module (gnu packages emacs)
+    #:use-module (gnu packages emacs-xyz)
+    #:use-module (base-system))
+
+  (operating-system
+   (inherit base-system)
+   (host-name "taurinus")
+
+   (mapped-devices (list (mapped-device
+                          (source (uuid
+                                   "8d598765-ccb3-4ba1-97aa-ef8f93d6929f"))
+                          (target "cryptroot")
+                          (type luks-device-mapping))
+                         (mapped-device
+                          (source (uuid
+                                   "7c58044f-ab80-43bf-9c77-3d52dd95558e"))
+                          (target "crypthome")
+                          (type luks-device-mapping))))
+
+   (file-systems (cons* (file-system
+                         (mount-point "/boot/efi")
+                         (device (uuid "FB3D-B7E6"
+                                       'fat32))
+                         (type "vfat"))
+                        (file-system
+                         (mount-point "/")
+                         (device "/dev/mapper/cryptroot")
+                         (type "ext4")
+                         (dependencies mapped-devices))
+                        (file-system
+                         (mount-point "/home")
+                         (device "/dev/mapper/crypthome")
+                         (type "ext4")
+                         (dependencies mapped-devices))
+          	      %base-file-systems))
+
+   (services
+    (append (list
+  	   (service tlp-service-type
+  		    (tlp-configuration
+  		     (cpu-boost-on-ac? #t)
+  		     (wifi-pwr-on-bat? #t))))
+  	  (operating-system-user-services base-system)))
+
+   (packages
+    (append '()
+  	  (list emacs-exwm)
+  	  (operating-system-packages base-system))))
+#+end_src
+
+*** gnou
+
+Named after the Black Wildebeest /Connochaetes Gnou/, which is the iconic Gnu of the GNU project, Gnou is my desktop.
+
+#+begin_src scheme :tangle "./config/system/gnou.scm"
+  (define-module (gnou))
+#+end_src
+
+** Home
+
+Home defines any Guix Home configurations for user-level installations and configuration.
+
+*** Services
+
+Like the top-level services, this services directory defines GNU Shepherd services, this time run on a user level. This first file serves as a module to contain other modules for a cleaner import and editing.
+
+#+begin_src scheme :tangle "./config/home/services/my-services.scm"
+  (define-module (services my-services)
+    #:use-module (services bash-service)
+    #:use-module (services git-service)
+    #:use-module (services power-service)
+    #:export (my-services))
+
+  (define my-services
+    (list bash-service
+  	git-service
+  	power-service))
+#+end_src
+
+**** Environment Variables
+
+Sets environment variables.
+
+#+begin_src scheme :tangle "./config/home/services/environment-variables-services.scm"
+  (define-module (services environment-variables-services)
+    #:use-module ()
+    #:export (environment-variables-services))
+#+end_src
+
+**** Bash
+
+Bash is my default shell.
+
+#+begin_src scheme :tangle "./config/home/services/bash-service.scm"
+  (define-module (services bash-service)
+    #:use-module (gnu services)
+    #:use-module (gnu home services)
+    #:use-module (gnu home services shells)
+    #:export (bash-service))
+
+  (define bash-service
+    (service home-bash-service-type
+        	   (home-bash-configuration
+  	    (aliases '(("ls" . "ls --color=")
+  		       ("grep" . "grep --color=auto")
+  		       ("ip" . "ip --color=auto")
+  		       ("s" . "sudo")
+  		       ("gsr" . "guix system reconfigure")
+  		       ("ghr" . "guix home reconfigure")))
+      	    (guix-defaults? #t))))
+#+end_src
+
+**** Power Management
+
+Service defining battery power management.
+
+#+begin_src scheme :tangle "./config/home/services/power-service.scm"
+  (define-module (services power-service)
+    #:use-module (gnu home services pm)
+    #:use-module (gnu services)
+    #:export (power-service))
+
+  (define power-service
+    (service home-batsignal-service-type
+  	   (home-batsignal-configuration
+  	    (warning-level 20)
+  	    (critical-level 10)
+  	    (danger-level 5))))
+#+end_src
+
+**** Git
+
+Service configuring Git profile.
+
+#+begin_src scheme :tangle "./config/home/services/git-service.scm"
+  (define-module (services git-service)
+    #:use-module (gnu services)
+    #:use-module (gnu home services)
+    #:use-module (guix gexp)
+    #:export (git-service))
+
+  (define git-service
+    (simple-service 'my-git-configuration home-xdg-configuration-files-service-type
+  		  `(("git/config"
+  		     ,(plain-file "git-config"
+  				  "[user]
+  name = Caleb Cole
+  email = calebrylancole@gmail.com
+
+  [core]
+  editor = emacs
+
+  [init]
+  defaultBranch = main
+
+  [color]
+  ui = auto
+
+  [push]
+  autoSetupRemote = true
+
+  [hash]
+  algorithm = histogram")))))
+#+end_src
+
+*** home-config
+
+home-config is the main Guix Home configuration file that will import all other Home modules.
+
+#+begin_src scheme :tangle "./config/home/home-config.scm"
+  (define-module (home-config)
+    #:use-module (gnu home)
+    #:use-module (gnu home services)
+    #:use-module (gnu packages)
+    #:use-module (nongnu packages)
+    #:use-module (programming-packages)
+    #:use-module (web-packages)
+    #:use-module (media-packages)
+    #:use-module (emulation-packages)
+    #:use-module (services my-services))
+
+  (home-environment
+   (packages (append programming-packages
+  		   web-packages
+  	           media-packages
+  		   emulation-packages))
+   (services (append '()
+  		   my-services)))
+#+end_src
+
+*** programming-packages
+
+Inside is every package that will be used in relation to programming and software development. Contains collections of packages as modules for both brevity and configuration (e.g. "Emacs" module).
+
+#+begin_src scheme :tangle "./config/home/programming-packages.scm"
+  (define-module (programming-packages)
+    #:use-module (guix)
+    #:use-module (gnu packages)
+    #:use-module (emacs-packages)
+    #:export (programming-packages))
+
+  (define programming-packages
+    (append emacs-packages
+  	  (specifications->packages (list "alacritty"
+  					  "git"
+  					  "vim"
+  					  "valgrind"
+  					  "strace"
+  					  "wget"
+  					  "curl"
+  					  "nmap"
+  					  "guile-readline"
+  					  "guile-colorized"
+  					  "fzf"
+  					  "fd"
+  					  "ripgrep"
+  					  "direnv"))))
+#+end_src
+
+**** Emacs-packages
+
+Inside is all packages to be installed for Emacs. Emacs has great integration with Guix naturally due to both GNU projects being written in Lisp dialects and is thus the most preferred text editor.
+
+#+begin_src scheme :tangle "./config/home/emacs-packages.scm"
+  (define-module (emacs-packages)
+    #:use-module (guix)
+    #:use-module (gnu packages)
+    #:use-module (nongnu packages)
+    #:use-module (nongnu packages emacs)
+    #:use-module (myguix packages emacs)
+    #:export (emacs-packages))
+
+  (define emacs-packages
+    (append
+     (list emacs-org-roam-ui
+  	 emacs-flycheck-eglot
+  	 emacs-gruber-darker)
+     (specifications->packages
+      (list "emacs"
+  	  "emacs-guix"
+  	  "emacs-no-littering"
+  	  "emacs-direnv"
+  	  "emacs-ebib"
+  	  "emacs-geiser"
+  	  "emacs-geiser-guile"
+  	  "emacs-gnuplot"
+  	  "emacs-slime"
+  	  "emacs-leetcode"
+  	  "emacs-auctex"
+  	  "emacs-doom-modeline"
+  	  "emacs-nerd-icons"
+  	  "emacs-highlight-indent-guides"
+  	  "emacs-volatile-highlights"
+  	  "emacs-general"
+  	  "emacs-vterm"
+  	  "emacs-eshell-git-prompt"
+  	  "emacs-olivetti"
+  	  "emacs-dirvish"
+  	  "emacs-cc-mode"
+  	  "racket"
+  	  "emacs-racket-mode"
+  	  "emacs-ob-racket"
+  	  "emacs-org-superstar"
+  	  "emacs-org-roam"
+  	  "emacs-org-roam-bibtex"
+  	  "emacs-citar"
+  	  "emacs-citar-org-roam"
+  	  "emacs-simple-httpd"
+  	  "emacs-websocket"
+  	  "emacs-org-noter"
+  	  "emacs-pdf-tools"
+  	  "emacs-org-pdftools"
+  	  "emacs-org-transclusion"
+  	  "emacs-zotra"
+  	  "emacs-flycheck"
+  	  "emacs-jinx"
+  	  "hunspell-dict-en-us"
+  	  "enchant"
+  	  "emacs-vertico"
+  	  "emacs-marginalia"
+  	  "emacs-orderless"
+  	  "emacs-corfu"
+  	  "emacs-consult"
+  	  "emacs-consult-org-roam"
+  	  "emacs-consult-flycheck"
+  	  "emacs-consult-bibtex"
+  	  "emacs-consult-dir"
+  	  "emacs-consult-notes"
+  	  "emacs-consult-eglot"
+  	  "emacs-which-key"
+  	  "emacs-transient"
+  	  "emacs-multiple-cursors"
+  	  "emacs-avy"
+  	  "emacs-ace-window"
+  	  "emacs-crux"
+  	  "emacs-expand-region"
+  	  "emacs-combobulate"
+  	  "emacs-dape"
+  	  "emacs-pyvenv"
+  	  "emacs-eglot"
+  	  "emacs-zig-mode"
+  	  "emacs-nix-mode"
+  	  "emacs-glsl-mode"
+  	  "emacs-haskell-mode"
+  	  "emacs-magit"
+  	  "emacs-git-auto-commit-mode"
+  	  "emacs-git-modes"
+  	  "emacs-forge"
+  	  "emacs-ghub"
+  	  "emacs-rainbow-delimiters"
+  	  "emacs-exec-path-from-shell"
+  	  "emacs-envrc"
+  	  "emacs-ssh-agency"
+  	  "emacs-helpful"
+  	  "book-sicp"
+  	  "font-abattis-cantarell"
+  	  "emacs-exwm"
+  	  "emacs-exwm-edit"
+  	  "emacs-exwm-mff"
+  	  "emacs-exwm-firefox"
+  	  "emacs-exwm-modeline"
+  	  "emacs-exwm-ss"
+  	  "emacs-desktop-environment"))))
+#+end_src
+
+*** web-packages
+
+Includes packages for browsing the web or using web-apps
+
+#+begin_src scheme :tangle "./config/home/web-packages.scm"
+  (define-module (web-packages)
+    #:use-module (gnu packages)
+    #:export (web-packages))
+
+  (define web-packages
+    (specifications->packages
+     (list "torbrowser"
+  	 "librewolf")))
+#+end_src
+
+*** media-packages
+
+Includes packages for viewing and editing of media (video, audio, etc.).
+
+#+begin_src scheme :tangle "./config/home/media-packages.scm"
+  (define-module (media-packages)
+    #:use-module (gnu packages)
+    #:export (media-packages))
+
+  (define media-packages
+    (specifications->packages
+     (list "mpv"
+  	 "vlc"
+  	 "obs"
+  	 "gimp"
+  	 "feh"
+  	 "font-jetbrains-mono"
+  	 "font-google-noto"
+  	 "font-google-noto-emoji"
+  	 "unclutter"
+  	 "playerctl"
+  	 "brightnessctl"
+  	 "xrandr"
+  	 "wl-clipboard"
+  	 "wireplumber"
+  	 "ffmpeg")))
+#+end_src
+
+*** emulation-packages
+
+Software for emulation of other hardware.
+
+#+begin_src scheme :tangle "./config/home/emulation-packages.scm"
+  (define-module (emulation-packages)
+    #:use-module (gnu packages)
+    #:export (emulation-packages))
+
+  (define emulation-packages
+    (specifications->packages (list "kanata"
+  				  "qemu")))
+#+end_src
+
+* Files
+
+Files contains all non-Guile source code that will be used for Guix's configuration.
