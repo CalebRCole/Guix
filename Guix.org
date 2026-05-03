@@ -86,8 +86,11 @@ This file serves as a base module to be imported into other systems to reduce th
                     (comment "Caleb Cole")
                     (group "users")
                     (home-directory "/home/ccole")
-                    (supplementary-groups '("wheel" "netdev" "audio" "video")))
+                    (supplementary-groups '("wheel" "netdev" "audio" "video" "input" "uinput")))
                    %base-user-accounts))
+
+     (groups (cons* (user-group (name "uinput") (system? #t))
+                   %base-groups))
 
      (services
       (append (list (service gnome-desktop-service-type)
@@ -96,6 +99,9 @@ This file serves as a base module to be imported into other systems to reduce th
                     (service openssh-service-type)
                     (service tor-service-type)
                     (service cups-service-type)
+  		  (udev-rules-service 'uinput 
+  				      (udev-rule "99-uinput.rules"
+  						 "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\""))
                     (set-xorg-configuration
                      (xorg-configuration (keyboard-layout keyboard-layout))))
   	    %desktop-services))
@@ -260,12 +266,14 @@ Like the top-level services, this services directory defines GNU Shepherd servic
   (define-module (services my-services)
     #:use-module (services bash-service)
     #:use-module (services git-service)
+    #:use-module (services kanata-service)
     #:use-module (services power-service)
     #:export (my-services))
 
   (define my-services
     (list bash-service
   	git-service
+  	kanata-service
   	power-service))
 #+end_src
 
@@ -353,6 +361,36 @@ Service configuring Git profile.
 
   [hash]
   algorithm = histogram")))))
+#+end_src
+
+**** Kanata
+
+Kanata is a keyboard configurator like KMonad that allows customization like QMK on all keyboards.
+
+#+begin_src scheme :tangle "./config/home/services/kanata-service.scm"
+  (define-module (services kanata-service)
+    #:use-module (gnu home)
+    #:use-module (gnu home services)
+    #:use-module (gnu home services shepherd)
+    #:use-module (gnu packages rust-apps)
+    #:use-module (guix gexp)
+    #:export (kanata-service))
+
+  (define kanata-config-file
+    (local-file "../../../files/kanata/config.kbd"))
+
+  (define kanata-service
+    (list (service home-shepherd-service-type
+             (list (shepherd-service
+                    (provision '(kanata))
+                    (documentation "Kanata keyboard remapper.")
+                    (start #~(make-forkexec-constructor
+                              (list #$(file-append kanata "/bin/kanata")
+                                    "--cfg" #$kanata-config-file)
+                              #:log-file (string-append (getenv "HOME") "/.local/state/log/kanata.log")))
+                    (stop #~(make-kill-destructor)))))
+
+
 #+end_src
 
 *** home-config
@@ -494,6 +532,7 @@ Inside is all packages to be installed for Emacs. Emacs has great integration wi
   	  "emacs-nix-mode"
   	  "emacs-glsl-mode"
   	  "emacs-haskell-mode"
+  	  "emacs-kbd"
   	  "emacs-magit"
   	  "emacs-git-auto-commit-mode"
   	  "emacs-git-modes"
@@ -575,3 +614,73 @@ Software for emulation of other hardware.
 * Files
 
 Files contains all non-Guile source code that will be used for Guix's configuration.
+
+** Kanata
+
+Kanata keyboard remapper's configuration.
+
+#+begin_src kbd :tangle "./files/kanata/config.kbd"
+(defcfg
+  process-unmapped-keys yes
+  )
+
+(defsrc
+  esc left caps a s d f j k l ; rsft ralt rctl
+  x c v
+  )
+
+(defvar
+  tap-time 175
+  hold-time 175
+  chord-timeout 50
+  )
+
+(defchords main $chord-timeout
+  ;; Digraphs
+  (f d) (macro t h)
+  (d s) (macro s h)
+  (s a) (macro g h)
+  (c v) (macro c h)
+  (x c) (macro p h)
+
+  ;; Enter Chord
+  (j k) ret
+
+  ;; Modifiers when held, chords when tapped together
+  (a) @met_a
+  (s) @calt_s
+  (d) @alt_d
+  (f) @ctl_f
+  (j) @crl_j
+  (k) @alt_k
+  (l) @calt_l
+  (x) x
+  (c) c
+  (v) v
+  )
+
+(defalias
+  ;; Caps = Tap for Escape, Hold for Control
+  caps_crtl (tap-hole $tap-time $hold-time esc lctrl)
+
+  ;; Space Cadet Keys
+  sc_l (tap-hold-release $tap-time $hold-time S-9 lsft)
+  sc_r (tap-hold-release $tap-time $hold-time S-0 rsft)
+
+  ;; Home Row Modifiers
+  ;; Index = Control, Middle = Alt, Ring = Control+Alt, Pinky = Super
+  met_a   (tap-hold-release $tap-time $hold-time a lmet)
+  met_sem (tap-hold-release $tap-time $hold-time ; rmet)
+  calt_s  (tap-hold-release $tap-time $hold-time s (multi lalt lclt))
+  calt_l  (tap-hold-release $tap-time $hold-time l (multi ralt rctl))
+  alt_d   (tap-hold-release $tap-time $hold-time d lalt)
+  alt_k   (tap-hold-release $tap-time $hold-time k ralt)
+  ctl_f   (tap-hold-release $tap-time $hold-time f lctl)
+  ctl_j   (tap-hold-release $tap-time $hold-time j rctl)
+  )
+
+(deflayer base
+  caps @sc_l @cap_ctrl (chord main a) (chord main s) (chord main d) (chord main f) (chord main j) (chord main k) (chord main l) @met_sem @sc_r f13 f14
+  (chord main x) (chord main c) (chord main v)
+  )
+#+end_src

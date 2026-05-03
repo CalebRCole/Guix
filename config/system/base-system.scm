@@ -24,8 +24,11 @@
                   (comment "Caleb Cole")
                   (group "users")
                   (home-directory "/home/ccole")
-                  (supplementary-groups '("wheel" "netdev" "audio" "video")))
+                  (supplementary-groups '("wheel" "netdev" "audio" "video" "input" "uinput")))
                  %base-user-accounts))
+
+   (groups (cons* (user-group (name "uinput") (system? #t))
+                 %base-groups))
 
    (services
     (append (list (service gnome-desktop-service-type)
@@ -34,6 +37,9 @@
                   (service openssh-service-type)
                   (service tor-service-type)
                   (service cups-service-type)
+		  (udev-rules-service 'uinput 
+				      (udev-rule "99-uinput.rules"
+						 "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\""))
                   (set-xorg-configuration
                    (xorg-configuration (keyboard-layout keyboard-layout))))
 	    %desktop-services))
