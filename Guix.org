@@ -782,7 +782,7 @@ Includes packages for viewing and editing of media (video, audio, etc.).
 
 *** emulation-packages
 
-Software for emulation of other hardware.
+Software for emulation of other hardware (not just for games!).
 
 #+begin_src scheme :tangle "./config/home/emulation-packages.scm"
   (define-module (emulation-packages)
