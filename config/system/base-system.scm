@@ -3,10 +3,12 @@
   #:use-module (gnu)
   #:use-module ((nongnu packages linux) #:prefix nongnu:)
   #:use-module (nongnu system linux-initrd)
-  #:export (base-system))
+  #:export (base-system %my-user))
 
 (use-service-modules cups desktop networking ssh xorg)
 (use-package-modules bootloaders certs shells emacs base version-control wm)
+
+(define %my-user "ccole")
 
 (define base-system
   (operating-system

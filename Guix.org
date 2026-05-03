@@ -18,8 +18,99 @@ Also, passwords should be set imperatively using =passwd= for both root and user
 
 Services defines all system-wide GNU Shepherd (GNU systemd equivalent) services.
 
-#+begin_src scheme
-  (define-module (config services service))
+**** Btrfs
+
+Btrfs services for symlinking files and Snapper configuration.
+
+#+begin_src scheme :tangle "./config/system/services/btrfs-service.scm"
+  (define-module (services btrfs-service)
+    #:use-module (guix gexp)
+    #:use-module (gnu services)
+    #:use-module (gnu services mcron)
+    #:use-module (base-system)
+    #:export (btrfs-service))
+
+  (define btrfs-service
+    (list (simple-service 'my-persistence-links-service activation-service-type
+  			#~(begin
+  			    (use-modules (guix build utils))
+  			    (let ((home (string-append "/home/" #$%my-user))
+  				  ;; Define the list of (TARGET . SOURCE)
+  				  (links '((".bash_history"  . "/mnt/persist/history/bash_history")
+  					   (".guile_history" . "/mnt/persist/history/guile_history")
+  					   (".lesshst"       . "/mnt/persist/history/less_history"))))
+                                
+                                (mkdir-p home)
+                                (for-each 
+                                 (lambda (pair)
+  				 (let ((target (string-append home "/" (car pair)))
+                                         (source (cdr pair)))
+  				   (unless (file-exists? target)
+  				     ;; Ensure the directory containing the symlink exists
+  				     ;; (Important for nested files like .config/app/config)
+  				     (mkdir-p (dirname target))
+  				     (symlink source target))))
+                                 links))))
+
+  	(simple-service 'snapper-config etc-service-type
+  			`(("snapper/configs/config" ,(plain-file "config"
+  								 (string-append
+  								  "SUBVOLUME=\"/mnt/persist\"\n"
+  								  "FSTYPE=\"btrfs\"\n"
+  								  (string-append "ALLOW_USERS=\"" %my-user "\"\n")
+  								  "ALLOW_GROUPS=\"users\"\n"
+  								  "SYNC_ACL=\"yes\"\n"
+  								  "TIMELINE_CLEANUP=\"yes\"\n"
+  								  "TIMELINE_MIN_AGE=\"1800\"\n"
+  								  "TIMELINE_LIMIT_HOURLY=\"12\"\n"
+  								  "TIMELINE_LIMIT_DAILY=\"7\"\n"
+  								  "TIMELINE_LIMIT_WEEKLY=\"4\"\n"
+  								  "TIMELINE_LIMIT_MONTHLY=\"3\"\n"
+  								  "TIMELINE_LIMIT_YEARLY=\"1\"\n")))
+  			  ("default/snapper" ,(plain-file "snapper-default" "SNAPPER_CONFIGS=\"config\""))))
+  	(simple-service 'snapper-jobs mcron-service-type
+  			(list
+  			 #~(job '(next-hour)
+  				"snapper -c config create --cleanup-algorithm timeline --description 'Hourly'")
+  			 #~(job '(next-hour '(5))
+  				"snapper -c config cleanup timeline")))))
+#+end_src
+
+**** GC
+
+Guix builds an extensive amount of packages in the store over time, which need to be trimmed down via garbage collection. We do so here using an mcron job.
+
+#+begin_src scheme :tangle "./config/system/services/gc-service.scm"
+  (define-module (services gc-service)
+    #:use-module (guix gexp)
+    #:use-module (guix packages)
+    #:use-module (gnu packages package-management)
+    #:use-module (gnu services)
+    #:use-module (gnu services mcron)
+    #:export (gc-service))
+
+  (define gc-service
+    (simple-service 'hourly-gc-check mcron-service-type
+      (list 
+       #~(job "0 * * * *" 
+              #$(with-imported-modules '((guix build utils)
+                                         (ice-9 rdelim))
+                  #~(begin
+                      (use-modules (ice-9 rdelim))
+                      (let* ((timestamp-file "/var/lib/guix/last-auto-gc")
+                             (now (current-time))
+                             (two-weeks (* 14 24 60 60))
+                             (last-run (if (file-exists? timestamp-file)
+                                           (string->number 
+                                            (call-with-input-file timestamp-file read-line))
+                                           0)))
+                        (when (> (- now last-run) two-weeks)
+                          ;; Log the event to the mcron log
+                          (display "Threshold reached. Running bi-weekly GC...\n")
+                          (if (zero? (system* #$(file-append guix "/bin/guix") "gc" "-d" "14d"))
+                              (call-with-output-file timestamp-file
+                                (lambda (port) (display now port)))
+                              (display "GC failed; timestamp not updated.\n"))))))))))
 #+end_src
 
 *** channels
@@ -65,10 +156,12 @@ This file serves as a base module to be imported into other systems to reduce th
     #:use-module (gnu)
     #:use-module ((nongnu packages linux) #:prefix nongnu:)
     #:use-module (nongnu system linux-initrd)
-    #:export (base-system))
+    #:export (base-system %my-user))
 
   (use-service-modules cups desktop networking ssh xorg)
   (use-package-modules bootloaders certs shells emacs base version-control wm)
+
+  (define %my-user "ccole")
 
   (define base-system
     (operating-system
@@ -127,60 +220,150 @@ Named after the Blue Wildebeest /Connochaetes Taurinus/, Taurinus is for my lapt
 The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
 
 #+begin_src scheme :tangle "./config/system/taurinus-alpha.scm"
-  (define-module (taurinus)
-    #:use-module (gnu)
+  (define-module (taurinus-alpha)
     #:use-module (guix)
+    #:use-module (guix gexp)
     #:use-module (guix transformations)
+    #:use-module (gnu)
     #:use-module (gnu services pm)
-    #:use-module ((nongnu packages linux) #:prefix nongnu:)
-    #:use-module (nongnu system linux-initrd)
+    #:use-module (gnu packages linux)
+    #:use-module (gnu packages file-systems)
     #:use-module (gnu packages emacs)
     #:use-module (gnu packages emacs-xyz)
+    #:use-module ((nongnu packages linux) #:prefix nongnu:)
+    #:use-module (nongnu system linux-initrd)
+    #:use-module (services btrfs-service)
+    #:use-module (services gc-service)
     #:use-module (base-system))
+
+  ;; The path of a directory should be the same on btrfs as with tmpfs, just with /mnt/persist/ prepended
+  (define (persistent-subvolume path dependency)
+    (file-system
+     (device (string-append "/mnt/persist/" path))
+     (mount-point (string-append "/" path))
+     (type "none")
+     (flags '(bind-mount))
+     (create-mount-point? #t)
+     (dependencies (list dependency))))
+
+  ;; Only for /home/ volumes.
+  (define (persistent-home-subvolume path dependency)
+    (file-system
+     (device (string-append "/mnt/persist/home/user/" path))
+     (mount-point (string-append "/home/" %my-user "/" path))
+     (type "none")
+     (flags '(bind-mount))
+     (create-mount-point? #t)
+     (dependencies (list dependency))))
 
   (operating-system
    (inherit base-system)
-   (host-name "taurinus")
+   (host-name "taurinus-alpha")
 
    (mapped-devices (list (mapped-device
-                          (source (uuid
-                                   "8d598765-ccb3-4ba1-97aa-ef8f93d6929f"))
-                          (target "cryptroot")
-                          (type luks-device-mapping))
-                         (mapped-device
-                          (source (uuid
-                                   "7c58044f-ab80-43bf-9c77-3d52dd95558e"))
-                          (target "crypthome")
-                          (type luks-device-mapping))))
+  			(source "/dev/nvme0n1p2")
+  			(target "persist")
+  			(type luks-device-mapping))))
 
-   (file-systems (cons* (file-system
-                         (mount-point "/boot/efi")
-                         (device (uuid "FB3D-B7E6"
-                                       'fat32))
-                         (type "vfat"))
-                        (file-system
-                         (mount-point "/")
-                         (device "/dev/mapper/cryptroot")
-                         (type "ext4")
-                         (dependencies mapped-devices))
-                        (file-system
-                         (mount-point "/home")
-                         (device "/dev/mapper/crypthome")
-                         (type "ext4")
-                         (dependencies mapped-devices))
-          	      %base-file-systems))
+   (file-systems
+    (let ((persist (file-system
+    		  (mount-point "/mnt/persist")
+    		  (device "/dev/mapper/persist")
+    		  (type "btrfs")
+    		  (needed-for-boot? #t)
+    		  (flags '(no-atime no-suid))
+    		  (options "subvol=@persist,compress=zstd,space_cache=v2")
+    		  (dependencies mapped-devices))))
+      (append (list 
+    	     ;; Boot partition.
+    	     (file-system
+    	      (mount-point "/boot/efi")
+    	      (device (file-system-label "boot"))
+    	      (type "vfat")
+  	      (needed-for-boot? #t)
+  	      (flags '(no-exec))
+  	      (options "umask=0077"))
 
+    	     ;; Ram-based root filesystem enforces impermanence.
+    	     (file-system
+    	      (mount-point "/")
+    	      (device "none")
+    	      (type "tmpfs")
+    	      (check? #f)
+    	      (flags '(no-dev no-atime no-suid))
+    	      (options "size=2G,mode=755"))
+
+    	     ;; Mounting for the store.
+    	     (file-system
+    	      (mount-point "/gnu/store")
+    	      (device "/dev/mapper/persist")
+    	      (type "btrfs")
+    	      (needed-for-boot? #t)
+    	      (flags '(no-atime))
+    	      (options "subvol=@store,compress=zstd,space_cache=v2")
+    	      (dependencies mapped-devices))
+
+    	     ;; Mounting for all persistent data.
+    	     persist)
+
+          		  ;;; Bind-mounts		
+  	    ;; /mnt/persist/ is already prepended to volumes on btrfs.
+  	    (map (lambda (paths)
+  		   (persistent-subvolume paths persist))
+  		 (list "etc/guix"		 ; Guix Daemon
+  		       "var/lib/guix"	 ; Guix Generations
+  		       "var/guix/profiles" ; Guix Profiles
+  		       "var/log"		 ; Logs
+  		       "etc/NetworkManager/system-connections" ; NetworkManager Connections
+  		       "var/lib/bluetooth"		     ; Bluetooth
+  		       "etc/ssh"				     ; SSH Host Keys
+  		       "var/lib/libvirt"			     ; Virtual Machines
+  		       "var/lib/docker"			     ; Docker
+  		       "etc/cups"				     ; CUPS Printing
+  		       "etc/snapper/configs"		     ; Snapper Configurations
+  		       "etc/default/snapper"
+  		       ))
+
+    	    ;; Home-mounts
+  	    (map (lambda (paths)
+  		   (persistent-home-subvolume paths persist))
+  		 (list "Projects"
+  		       "Documents"
+  		       "Pictures"
+  		       "Music"
+  		       "Videos"
+  		       "Templates"
+  		       ".ssh"
+  		       ".gnupg"
+  		       ".mozilla"	    ; Firefox
+  		       ".tor project" ; Tor
+  		       ".local/state/shephard" ; Shepherd Logs
+  		       ".local/share/direnv"   ; Direnv
+  		       ))
+  	    (filter (lambda (fs)
+                        (let ((mp (file-system-mount-point fs)))
+                          (not (member mp '("/" "/boot/efi")))))
+  		    %base-file-systems))))
+
+   (bootloader (bootloader-configuration
+    	      (bootloader grub-efi-bootloader)
+    	      (targets (list "/boot/efi"))))
+   
    (services
     (append (list
-  	   (service tlp-service-type
-  		    (tlp-configuration
-  		     (cpu-boost-on-ac? #t)
-  		     (wifi-pwr-on-bat? #t))))
+    	   (service tlp-service-type
+    		    (tlp-configuration
+    		     (cpu-boost-on-ac? #t)
+    		     (wifi-pwr-on-bat? #t)))
+  	   gc-service)
+  	  btrfs-service
   	  (operating-system-user-services base-system)))
 
    (packages
     (append '()
-  	  (list emacs-exwm)
+  	  (list emacs-exwm
+  		snapper
+  		btrfs-progs)
   	  (operating-system-packages base-system))))
 #+end_src
 
@@ -189,7 +372,7 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
 The configuration for other laptops besides my daily driver.
 
 #+begin_src scheme :tangle "./config/system/taurinus-herd.scm"
-  (define-module (taurinus)
+  (define-module (taurinus-herd)
     #:use-module (gnu)
     #:use-module (guix)
     #:use-module (guix transformations)
@@ -202,7 +385,7 @@ The configuration for other laptops besides my daily driver.
 
   (operating-system
    (inherit base-system)
-   (host-name "taurinus")
+   (host-name "taurinus-herd")
 
    (mapped-devices (list (mapped-device
                           (source (uuid
