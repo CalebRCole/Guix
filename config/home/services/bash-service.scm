@@ -7,7 +7,7 @@
 (define bash-service
   (service home-bash-service-type
       	   (home-bash-configuration
-	    (aliases '(("ls" . "ls --color=")
+	    (aliases '(("ls" . "ls --color=auto")
 		       ("grep" . "grep --color=auto")
 		       ("ip" . "ip --color=auto")
 		       ("s" . "sudo")
