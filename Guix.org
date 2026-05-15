@@ -155,6 +155,7 @@ This file serves as a base module to be imported into other systems to reduce th
                     (service openssh-service-type)
                     (service tor-service-type)
                     (service cups-service-type)
+  		  ;; udev rules implemented for Kanata user-level access.
   		  (udev-rules-service 'uinput 
   				      (udev-rule "99-uinput.rules"
   						 "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\""))
@@ -523,6 +524,7 @@ Kanata is a keyboard configurator like KMonad that allows customization like QMK
 
 #+begin_src scheme :tangle "./config/home/services/kanata-service.scm"
   (define-module (services kanata-service)
+    #:use-module (gnu services)
     #:use-module (gnu home)
     #:use-module (gnu home services)
     #:use-module (gnu home services shepherd)
@@ -530,21 +532,20 @@ Kanata is a keyboard configurator like KMonad that allows customization like QMK
     #:use-module (guix gexp)
     #:export (kanata-service))
 
-  (define kanata-config-file
-    (local-file "../../../files/kanata/config.kbd"))
-
   (define kanata-service
-    (list (service home-shepherd-service-type
-             (list (shepherd-service
-                    (provision '(kanata))
-                    (documentation "Kanata keyboard remapper.")
-                    (start #~(make-forkexec-constructor
-                              (list #$(file-append kanata "/bin/kanata")
-                                    "--cfg" #$kanata-config-file)
-                              #:log-file (string-append (getenv "HOME") "/.local/state/log/kanata.log")))
-                    (stop #~(make-kill-destructor)))))
-
-
+    (simple-service 'kanata-service home-shepherd-service-type
+  		  (list (let ((config "../../files/kanata/config.kbd"))
+  			  (shepherd-service
+  			   (documentation "Kanata keyboard remapper")
+  			   (provision '(kanata))
+  			   (start #~(make-forkexec-constructor
+  				     (list #$(file-append kanata "/bin/kanata")
+  					   "--cfg" #$(local-file config))
+  				     #:log-file (string-append (or (getenv "XDG_STATE_HOME")
+  								   (string-append (getenv "HOME") "/.local/state"))
+  							       "/log/kanata.log")))
+  			   (stop #~(make-kill-destructor))
+  			   (respawn? #t))))))
 #+end_src
 
 *** home-config
@@ -686,7 +687,7 @@ Inside is all packages to be installed for Emacs. Emacs has great integration wi
   	  "emacs-nix-mode"
   	  "emacs-glsl-mode"
   	  "emacs-haskell-mode"
-  	  "emacs-kbd"
+  	  "emacs-kanata-kbd-mode"
   	  "emacs-magit"
   	  "emacs-git-auto-commit-mode"
   	  "emacs-git-modes"

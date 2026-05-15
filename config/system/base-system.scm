@@ -39,6 +39,7 @@
                   (service openssh-service-type)
                   (service tor-service-type)
                   (service cups-service-type)
+		  ;; udev rules implemented for Kanata user-level access.
 		  (udev-rules-service 'uinput 
 				      (udev-rule "99-uinput.rules"
 						 "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\""))

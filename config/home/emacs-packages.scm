@@ -78,7 +78,7 @@
 	  "emacs-nix-mode"
 	  "emacs-glsl-mode"
 	  "emacs-haskell-mode"
-	  "emacs-kbd"
+	  "emacs-kanata-kbd-mode"
 	  "emacs-magit"
 	  "emacs-git-auto-commit-mode"
 	  "emacs-git-modes"
