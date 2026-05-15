@@ -11,7 +11,6 @@
   #:use-module ((nongnu packages linux) #:prefix nongnu:)
   #:use-module (nongnu system linux-initrd)
   #:use-module (services btrfs-service)
-  #:use-module (services gc-service)
   #:use-module (base-system))
 
 ;; The path of a directory should be the same on btrfs as with tmpfs, just with /mnt/persist/ prepended
