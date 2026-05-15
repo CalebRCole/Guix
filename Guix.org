@@ -138,7 +138,7 @@ This file serves as a base module to be imported into other systems to reduce th
      
      ;; 'root' is implicit
      (users (cons* (user-account
-                    (name "ccole")
+                    (name %my-user)
                     (comment "Caleb Cole")
                     (group "users")
                     (home-directory "/home/ccole")
@@ -208,7 +208,7 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
      (create-mount-point? #t)
      (dependencies (list dependency))))
 
-  ;; Only for /home/ volumes.
+  ;; Only for /home/ volumes. %my-user is exported by (base-system).
   (define (persistent-home-subvolume path dependency)
     (file-system
      (device (string-append "/mnt/persist/home/user/" path))

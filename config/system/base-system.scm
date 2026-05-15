@@ -22,7 +22,7 @@
    
    ;; 'root' is implicit
    (users (cons* (user-account
-                  (name "ccole")
+                  (name %my-user)
                   (comment "Caleb Cole")
                   (group "users")
                   (home-directory "/home/ccole")

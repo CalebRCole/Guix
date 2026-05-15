@@ -23,7 +23,7 @@
    (create-mount-point? #t)
    (dependencies (list dependency))))
 
-;; Only for /home/ volumes.
+;; Only for /home/ volumes. %my-user is exported by (base-system).
 (define (persistent-home-subvolume path dependency)
   (file-system
    (device (string-append "/mnt/persist/home/user/" path))
