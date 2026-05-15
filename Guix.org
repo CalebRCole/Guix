@@ -426,27 +426,20 @@ Like the top-level services, this services directory defines GNU Shepherd servic
 
 #+begin_src scheme :tangle "./config/home/services/my-services.scm"
   (define-module (services my-services)
+    #:use-module (gnu services)
     #:use-module (services bash-service)
     #:use-module (services git-service)
+    #:use-module (services guile-service)
     #:use-module (services kanata-service)
     #:use-module (services power-service)
     #:export (my-services))
 
   (define my-services
     (list bash-service
+  	guile-service
   	git-service
   	kanata-service
   	power-service))
-#+end_src
-
-**** Environment Variables
-
-Sets environment variables.
-
-#+begin_src scheme :tangle "./config/home/services/environment-variables-services.scm"
-  (define-module (services environment-variables-services)
-    #:use-module ()
-    #:export (environment-variables-services))
 #+end_src
 
 **** Bash
@@ -458,18 +451,54 @@ Bash is my default shell.
     #:use-module (gnu services)
     #:use-module (gnu home services)
     #:use-module (gnu home services shells)
+    #:use-module (guix gexp)
     #:export (bash-service))
 
   (define bash-service
     (service home-bash-service-type
-        	   (home-bash-configuration
-  	    (aliases '(("ls" . "ls --color=auto")
-  		       ("grep" . "grep --color=auto")
-  		       ("ip" . "ip --color=auto")
-  		       ("s" . "sudo")
-  		       ("gsr" . "guix system reconfigure")
-  		       ("ghr" . "guix home reconfigure")))
-      	    (guix-defaults? #t))))
+             (home-bash-configuration
+    	    (aliases '(("ls" . "ls --color=auto")
+    		       ("grep" . "grep --color=auto")
+    		       ("ip" . "ip --color=auto")
+    		       ("s" . "sudo")
+    		       ("gsr" . "sudo guix system reconfigure")
+    		       ("ghr" . "guix home reconfigure")))
+  	    (bashrc (list (plain-file "bashrc"
+  				"
+  export GUIX_PROFILE=\"$HOME/.guix-profile\"
+  if [ -f \"$GUIX_PROFILE/etc/profile\" ]; then
+    . \"$GUIX_PROFILE/etc/profile\"
+  fi")))
+    	    (bash-profile (list (plain-file "bash_profile"
+  				      "
+  GUIX_PROFILE=\"$HOME/.guix-profile\"
+  . \"$GUIX_PROFILE/etc/profile\"
+
+  if [[ ! -S ${XDG_RUNTIME_DIR-$HOME/.cache}/shepherd/socket ]]; then
+      shepherd
+  fi")))
+        	    (guix-defaults? #t))))
+#+end_src
+
+**** Guile
+
+Guile configuration for "~/.guile".
+
+#+begin_src scheme :tangle "./config/home/services/guile-service.scm"
+  (define-module (services guile-service)
+    #:use-module (gnu services)
+    #:use-module (gnu home services)
+    #:use-module (guix gexp)
+    #:export (guile-service))
+
+  (define guile-service
+    (simple-service 'my-guile-configuration home-files-service-type
+  		  `(("guile/.guile"
+  		     ,(plain-file "guile"
+  				  "(use-modules (ice-9 readline) (ice-9 colorized))
+
+  (activate-readline)
+  (activate-colorized)")))))
 #+end_src
 
 **** Power Management
@@ -478,8 +507,8 @@ Service defining battery power management.
 
 #+begin_src scheme :tangle "./config/home/services/power-service.scm"
   (define-module (services power-service)
-    #:use-module (gnu home services pm)
     #:use-module (gnu services)
+    #:use-module (gnu home services pm)
     #:export (power-service))
 
   (define power-service
@@ -564,6 +593,7 @@ home-config is the main Guix Home configuration file that will import all other 
     #:use-module (gnu home)
     #:use-module (gnu home services)
     #:use-module (gnu packages)
+    #:use-module (gnu services)
     #:use-module (nongnu packages)
     #:use-module (programming-packages)
     #:use-module (web-packages)
@@ -576,8 +606,7 @@ home-config is the main Guix Home configuration file that will import all other 
   		   web-packages
   	           media-packages
   		   emulation-packages))
-   (services (append '()
-  		   my-services)))
+   (services my-services))
 #+end_src
 
 *** programming-packages
@@ -589,10 +618,12 @@ Inside is every package that will be used in relation to programming and softwar
     #:use-module (guix)
     #:use-module (gnu packages)
     #:use-module (emacs-packages)
+    #:use-module (language-packages)
     #:export (programming-packages))
 
   (define programming-packages
     (append emacs-packages
+  	  language-packages
   	  (specifications->packages (list "alacritty"
   					  "git"
   					  "vim"
@@ -714,6 +745,23 @@ Inside is all packages to be installed for Emacs. Emacs has great integration wi
   	  "emacs-exwm-modeline"
   	  "emacs-exwm-ss"
   	  "emacs-desktop-environment"))))
+#+end_src
+
+**** Language-packages
+
+Packages related to languages that I want globally installed instead of directory defined.
+
+#+begin_src scheme :tangle "./config/home/language-packages.scm"
+  (define-module (language-packages)
+    #:use-module (guix)
+    #:use-module (gnu packages)
+    #:use-module (gnu packages guile)
+    #:export (language-packages))
+
+  (define language-packages
+    (specifications->packages (list "guile"
+  				 "guile-readline"
+  				 "guile-colorized")))
 #+end_src
 
 *** web-packages

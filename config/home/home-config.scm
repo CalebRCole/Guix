@@ -2,6 +2,7 @@
   #:use-module (gnu home)
   #:use-module (gnu home services)
   #:use-module (gnu packages)
+  #:use-module (gnu services)
   #:use-module (nongnu packages)
   #:use-module (programming-packages)
   #:use-module (web-packages)
@@ -14,5 +15,4 @@
 		   web-packages
 	           media-packages
 		   emulation-packages))
- (services (append '()
-		   my-services)))
+ (services my-services))

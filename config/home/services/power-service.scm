@@ -1,6 +1,6 @@
 (define-module (services power-service)
-  #:use-module (gnu home services pm)
   #:use-module (gnu services)
+  #:use-module (gnu home services pm)
   #:export (power-service))
 
 (define power-service
