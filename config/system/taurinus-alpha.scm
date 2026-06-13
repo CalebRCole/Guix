@@ -102,7 +102,7 @@
   	      (type "btrfs")
   	      (needed-for-boot? #t)
   	      (flags '(no-atime))
-  	      (options "subvol=@store,compress=zstd,space_cache=v2")
+  	      (options "subvol=@gnu,compress=zstd,space_cache=v2")
   	      (dependencies mapped-devices))
 
 	     ;; Persistence sub-volume.
