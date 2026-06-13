@@ -60,6 +60,7 @@
    (initrd (lambda (file-systems . rest)
              (apply base-initrd file-systems
                     #:extra-modules '("btrfs") ; Make sure the kernel can read Btrfs early on
+		    #:activation-hooks (list %btrfs-rollback-hook) ; Root wipe
                     rest)))
 
    (mapped-devices (list (mapped-device
@@ -134,15 +135,6 @@
   			    (wifi-pwr-on-bat? #t)))
 		  (service fprintd-service-type))
 	    btrfs-service
-
-	    (modify-services %base-services
-			     (initrd-service-type config =>
-						  (initrd-configuration
-						   (inherit config)
-						   (activation-hooks 
-						    (cons %btrfs-rollback-hook
-							  (initrd-configuration-activation-hooks config))))))
-	    
 	    (operating-system-user-services base-system)))
 
    (packages
