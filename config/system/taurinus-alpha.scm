@@ -1,6 +1,7 @@
 (define-module (taurinus-alpha)
   #:use-module (guix)
   #:use-module (guix gexp)
+  #:use-module (guix build utils)
   #:use-module (guix transformations)
   #:use-module (gnu)
   #:use-module (gnu services pm)
@@ -122,7 +123,7 @@
 		       "etc/snapper/configs" ; Snapper Configurations
 		       "etc/default/snapper"
 		       ))
-	    %base-file-systems)
+	    %base-file-systems))
 
     (swap-devices
      (list (swap-space
