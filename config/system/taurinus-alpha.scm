@@ -4,6 +4,7 @@
   #:use-module (guix build utils)
   #:use-module (guix transformations)
   #:use-module (gnu)
+  #:use-module (gnu services)
   #:use-module (gnu services pm)
   #:use-module (gnu services authentication)
   #:use-module (gnu packages linux)
@@ -62,7 +63,7 @@
                     rest)))
 
    (mapped-devices (list (mapped-device
-			  (source "/dev/nvme0n1p2")
+			  (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0")
 			  (target "Guix")
 			  (type luks-device-mapping))))
 
