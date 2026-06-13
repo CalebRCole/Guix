@@ -27,10 +27,7 @@
      (flags '(bind-mount))
      (create-mount-point? #t)
      (needed-for-boot? #t)
-     (dependencies 
-      (list (car (filter (lambda (fs) 
-                           (string=? (file-system-mount-point fs) "/persist"))
-                         %base-file-systems)))))))
+     (dependencies mapped-devices))))
 
 (define %btrfs-rollback-hook
   #~(lambda (mount-args)
