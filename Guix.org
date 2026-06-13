@@ -216,26 +216,29 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
        (needed-for-boot? #t)
        (dependencies dependencies))))
 
+  ;; Hook for initiating a wipe of the root fs.
   (define %btrfs-rollback-hook
     #~(lambda (mount-args)
         (let ((target "/mnt-parent"))
-  	(mkdir target)
-  	;; Mount the top-level Btrfs filesystem (subvol ID 5) to /mnt-parent
-  	(if (zero? (system* "mount" "-o" "subvol=/" "/dev/mapper/Guix" target))
-              (begin
-                (display "Wiping ephemeral root file system...\n")
-                ;; Delete the mutated @root subvolume
-                (system* "btrfs" "subvolume" "delete" 
-                         (string-append target "/@root"))
-                ;; Recreate @root from the pristine @root_blank template
-                (system* "btrfs" "subvolume" "snapshot" 
-                         (string-append target "/@root_blank") 
-                         (string-append target "/@root"))
-                ;; Unmount and cleanup
-                (system* "umount" target)
-                (rmdir target)
-                (display "Rollback complete!\n"))
-              (display "WARNING: Failed to mount Btrfs root for rollback!\n")))))
+          (mkdir target)
+          (catch 'system-error
+            (lambda ()
+              (mount "/dev/mapper/Guix" target "btrfs" 0 "subvol=/")
+              (display "Wiping ephemeral root file system...\n")
+              ;; Execute the btrfs subvolume manipulation
+              ;; Note: btrfs utility is present in the initrd environment path via extra-modules
+              (system* "btrfs" "subvolume" "delete"
+                       (string-append target "/@root"))
+              (system* "btrfs" "subvolume" "snapshot"
+                       (string-append target "/@root_blank")
+                       (string-append target "/@root"))
+
+              ;; Use Guile's native umount function
+              (umount target)
+              (rmdir target)
+              (display "Rollback complete!\n"))
+  	  (lambda args
+              (display "WARNING: Failed to natively mount Btrfs root for rollback!\n"))))))
 
   ;; Exported for use in generating an image for system installation.
   (define taurinus-alpha-record
