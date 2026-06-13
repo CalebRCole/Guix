@@ -57,11 +57,17 @@
    (inherit base-system)
    (host-name "taurinus-alpha")
 
+   ;; Ramdisk setup. Uses hook to wipe root for ephemeral root.
    (initrd (lambda (file-systems . rest)
-             (apply base-initrd file-systems
-                    #:extra-modules '("btrfs") ; Make sure the kernel can read Btrfs early on
-		    #:activation-hooks (list %btrfs-rollback-hook) ; Root wipe
-                    rest)))
+             (let ((base (apply base-initrd file-systems
+                                #:extra-modules '("btrfs") ; Load Btrfs drivers early
+                                rest)))
+               (expression->initrd
+                #~(begin
+                    (#$%btrfs-rollback-hook #f)
+                    (load #$base))
+                #:name "guix-rollback-initrd"))))
+   
 
    (mapped-devices (list (mapped-device
 			  (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
