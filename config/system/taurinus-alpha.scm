@@ -63,7 +63,7 @@
                     rest)))
 
    (mapped-devices (list (mapped-device
-			  (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0")
+			  (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
 			  (target "Guix")
 			  (type luks-device-mapping))))
 
@@ -123,35 +123,35 @@
 		       ))
 	    %base-file-systems))
 
-    (swap-devices
-     (list (swap-space
-	    (target (file-system-label "swap")))))
-    
-    (services
-     (append (list (service tlp-service-type
-  			    (tlp-configuration
-  			     (cpu-boost-on-ac? #t)
-  			     (wifi-pwr-on-bat? #t)))
-		   (service fprintd-service-type))
-	     btrfs-service
+   (swap-devices
+    (list (swap-space
+	   (target (file-system-label "swap")))))
+   
+   (services
+    (append (list (service tlp-service-type
+  			   (tlp-configuration
+  			    (cpu-boost-on-ac? #t)
+  			    (wifi-pwr-on-bat? #t)))
+		  (service fprintd-service-type))
+	    btrfs-service
 
-	     (modify-services %base-services
-			      (initrd-service-type config =>
-						   (initrd-configuration
-						    (inherit config)
-						    (activation-hooks 
-						     (cons %btrfs-rollback-hook
-							   (initrd-configuration-activation-hooks config))))))
-	     
-	     (operating-system-user-services base-system)))
+	    (modify-services %base-services
+			     (initrd-service-type config =>
+						  (initrd-configuration
+						   (inherit config)
+						   (activation-hooks 
+						    (cons %btrfs-rollback-hook
+							  (initrd-configuration-activation-hooks config))))))
+	    
+	    (operating-system-user-services base-system)))
 
-    (packages
-     (append '()
-	     (list emacs-exwm
-		   snapper
-		   btrfs-progs)
-	     (operating-system-packages base-system)))))
+   (packages
+    (append '()
+	    (list emacs-exwm
+		  snapper
+		  btrfs-progs)
+	    (operating-system-packages base-system)))))
 
 
-  ;; Evaluates into the definition above for use in 'sudo guix system reconfigure'.
-  taurinus-alpha-record
+;; Evaluates into the definition above for use in 'sudo guix system reconfigure'.
+taurinus-alpha-record
