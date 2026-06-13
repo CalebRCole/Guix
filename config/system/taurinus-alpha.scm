@@ -17,7 +17,7 @@
   #:export (taurinus-alpha-record))
 
 ;; Helper function to make adding bind-mounts simple.
-(define (persistent-subvolume path)
+(define (persistent-subvolume path dependencies)
   (let ((persist-path (string-append "/persist/" path)))
     (mkdir-p persist-path)		; Ensures the paths are present, and generates them if they are not.
     (file-system
@@ -27,7 +27,7 @@
      (flags '(bind-mount))
      (create-mount-point? #t)
      (needed-for-boot? #t)
-     (dependencies mapped-devices))))
+     (dependencies dependencies))))
 
 (define %btrfs-rollback-hook
   #~(lambda (mount-args)
@@ -109,7 +109,7 @@
 
 	    ;; Bind-mounts.
 	    (map (lambda (paths)
-		   (persistent-subvolume paths))
+		   (persistent-subvolume paths mapped-devices))
 		 (list "etc/guix"	   ; Guix Daemon
 		       "var/guix"	   ; Guix Core
 		       "var/lib"	   ; Libraries
