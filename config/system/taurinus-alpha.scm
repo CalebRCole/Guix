@@ -122,7 +122,7 @@
 		       "etc/snapper/configs" ; Snapper Configurations
 		       "etc/default/snapper"
 		       ))
-	    %base-file-systems)
+	    %base-file-systems))
 
     (swap-devices
      (list (swap-space
