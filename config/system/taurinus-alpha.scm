@@ -28,31 +28,7 @@
      (flags '(bind-mount))
      (create-mount-point? #t)
      (needed-for-boot? #t)
-     (dependencies dependencies))))
-
-;; Hook for initiating a wipe of the root fs.
-(define %btrfs-rollback-hook
-  #~(lambda (mount-args)
-      (let ((target "/mnt-parent"))
-        (mkdir target)
-        (catch 'system-error
-          (lambda ()
-            (mount "/dev/mapper/Guix" target "btrfs" 0 "subvol=/")
-            (display "Wiping ephemeral root file system...\n")
-            ;; Execute the btrfs subvolume manipulation
-            ;; Note: btrfs utility is present in the initrd environment path via extra-modules
-            (system* "btrfs" "subvolume" "delete"
-                     (string-append target "/@root"))
-            (system* "btrfs" "subvolume" "snapshot"
-                     (string-append target "/@root_blank")
-                     (string-append target "/@root"))
-
-            ;; Use Guile's native umount function
-            (umount target)
-            (rmdir target)
-            (display "Rollback complete!\n"))
-	  (lambda args
-            (display "WARNING: Failed to natively mount Btrfs root for rollback!\n"))))))
+     (dependencies (cons "/persist" dependencies)))))
 
 ;; Exported for use in generating an image for system installation.
 (define taurinus-alpha-record
@@ -60,43 +36,30 @@
    (inherit base-system)
    (host-name "taurinus-alpha")
 
-   ;; Ramdisk setup. Uses hook to wipe root for ephemeral root.
-   (initrd (lambda (file-systems . rest)
-             (let ((base (apply base-initrd file-systems
-                                #:extra-modules '("btrfs") ; Load Btrfs drivers early
-                                rest)))
-               (expression->initrd
-                #~(begin
-                    (#$%btrfs-rollback-hook #f)
-                    (load #$base))
-                #:name "guix-rollback-initrd"))))
-   
-
    (mapped-devices (list (mapped-device
 			  (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
 			  (target "Guix")
 			  (type luks-device-mapping))))
 
    (file-systems
-    (append (list
-  	     ;; Boot partition.
+    (append (list 
+	     ;; Root volume. Gets overwritten by blank root sub-volume.
   	     (file-system
+	      (mount-point "/")
+	      (device "none")
+	      (type "tmpfs")
+	      (needed-for-boot? #t)
+	      (flags '(no-dev no-atime no-suid))
+	      (options "size=25%,mode=755"))
+
+ 	     ;; Boot partition.
+	     (file-system
   	      (mount-point "/boot/efi")
   	      (device (file-system-label "BOOT"))
   	      (type "vfat")
 	      (needed-for-boot? #t)
 	      (flags '(no-exec))
 	      (options "umask=0077"))
-
-	     ;; Root volume. Gets overwritten by blank root sub-volume.
-	     (file-system
-	      (mount-point "/")
-	      (device (uuid "ac384527-0f36-4850-ba65-657fef2d18fe"))
-	      (type "btrfs")
-	      (needed-for-boot? #t)
-	      (flags '(no-dev no-atime no-suid))
-	      (options "subvol=@root,compress=zstd,space_cache=v2")
-	      (dependencies mapped-devices))
 
   	     ;; Mounting for the store.
   	     (file-system
@@ -114,6 +77,7 @@
 	      (device (uuid "ac384527-0f36-4850-ba65-657fef2d18fe"))
 	      (type "btrfs")
 	      (needed-for-boot? #t)
+	      (create-mount-point? #t)
 	      (flags '(no-atime no-suid))
 	      (options "subvol=@persist,compress=zstd,space_cache=v2")
 	      (dependencies mapped-devices)))
