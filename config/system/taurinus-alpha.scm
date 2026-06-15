@@ -17,19 +17,6 @@
   #:use-module (base-system)
   #:export (taurinus-alpha-record))
 
-;; Helper function to make adding bind-mounts simple.
-(define (persistent-subvolume path dependencies)
-  (let ((persist-path (string-append "/persist/" path)))
-    (mkdir-p persist-path)		; Ensures the paths are present, and generates them if they are not.
-    (file-system
-     (device persist-path)
-     (mount-point (string-append "/" path))
-     (type "none")
-     (flags '(bind-mount))
-     (create-mount-point? #t)
-     (needed-for-boot? #t)
-     (dependencies (cons "/persist" dependencies)))))
-
 ;; Exported for use in generating an image for system installation.
 (define taurinus-alpha-record
   (operating-system
@@ -42,80 +29,77 @@
 			  (type luks-device-mapping))))
 
    (file-systems
-    (append (list 
-	     ;; Root volume. Gets overwritten by blank root sub-volume.
-  	     (file-system
-	      (mount-point "/")
-	      (device "none")
-	      (type "tmpfs")
-	      (needed-for-boot? #t)
-	      (flags '(no-dev no-atime no-suid))
-	      (options "size=25%,mode=755"))
+    (let* ((persist (file-system
+		     (mount-point "/persist")
+		     (device "/dev/mapper/Guix") ; Points to the unlocked LUKS device
+		     (type "btrfs")
+		     (needed-for-boot? #t)
+		     (create-mount-point? #t)
+		     (flags '(no-atime no-suid))
+		     (options "subvol=@persist,compress=zstd,space_cache=v2")
+		     (dependencies mapped-devices))))
+      (append (list 
+	       ;; Root volume. Gets overwritten by blank root sub-volume.
+  	       (file-system
+		(mount-point "/")
+		(device "none")
+		(type "tmpfs")
+		(needed-for-boot? #t)
+		(flags '(no-dev no-atime no-suid))
+		(options "size=25%,mode=755"))
 
- 	     ;; Boot partition.
-	     (file-system
-  	      (mount-point "/boot/efi")
-  	      (device (file-system-label "BOOT"))
-  	      (type "vfat")
-	      (needed-for-boot? #t)
-	      (flags '(no-exec))
-	      (options "umask=0077"))
+ 	       ;; Boot partition.
+	       (file-system
+  		(mount-point "/boot/efi")
+  		(device (file-system-label "BOOT"))
+  		(type "vfat")
+		(needed-for-boot? #t)
+		(flags '(no-exec))
+		(options "umask=0077"))
 
-  	     ;; Mounting for the store.
-  	     (file-system
-  	      (mount-point "/gnu")
-  	      (device (uuid "ac384527-0f36-4850-ba65-657fef2d18fe"))
-  	      (type "btrfs")
-  	      (needed-for-boot? #t)
-  	      (flags '(no-atime))
-  	      (options "subvol=@gnu,compress=zstd,space_cache=v2")
-  	      (dependencies mapped-devices))
+  	       ;; Mounting for the store.
+  	       (file-system
+  		(mount-point "/gnu")
+  		(device "/dev/mapper/Guix")
+  		(type "btrfs")
+  		(needed-for-boot? #t)
+  		(flags '(no-atime))
+  		(options "subvol=@gnu,compress=zstd,space_cache=v2")
+  		(dependencies mapped-devices))
 
-	     ;; Persistence sub-volume.
-	     (file-system
-	      (mount-point "/persist")
-	      (device (uuid "ac384527-0f36-4850-ba65-657fef2d18fe"))
-	      (type "btrfs")
-	      (needed-for-boot? #t)
-	      (create-mount-point? #t)
-	      (flags '(no-atime no-suid))
-	      (options "subvol=@persist,compress=zstd,space_cache=v2")
-	      (dependencies mapped-devices)))
+	       ;; Persistence sub-volume.
+	       persist
 
-	    ;; Bind-mounts.
-	    (map (lambda (paths)
-		   (persistent-subvolume paths mapped-devices))
-		 (list "etc/guix"	   ; Guix Daemon
-		       "var/guix"	   ; Guix Core
-		       "var/lib"	   ; Libraries
-		       "var/log"	   ; Logs
-		       "etc/NetworkManager/system-connections" ; NetworkManager Connections
-		       "etc/ssh"	     ; SSH Host Keys
-		       "etc/cups"	     ; CUPS Printing
-		       "etc/snapper/configs" ; Snapper Configurations
-		       "etc/default/snapper"
-		       ))
-	    %base-file-systems))
+	       (file-system
+		(device "/persist/var/log")
+		(mount-point "/var/log")
+		(type "none")
+		(create-mount-point? #t)
+		(needed-for-boot? #t)
+		(flags '(bind-mount))
+		(shepherd-requirements '(file-system-/persist))))
 
-   (swap-devices
-    (list (swap-space
-	   (target (file-system-label "swap")))))
-   
-   (services
-    (append (list (service tlp-service-type
-  			   (tlp-configuration
-  			    (cpu-boost-on-ac? #t)
-  			    (wifi-pwr-on-bat? #t)))
-		  (service fprintd-service-type))
-	    btrfs-service
-	    (operating-system-user-services base-system)))
+	       %base-file-systems)))
 
-   (packages
-    (append '()
-	    (list emacs-exwm
-		  snapper
-		  btrfs-progs)
-	    (operating-system-packages base-system)))))
+      (swap-devices
+       (list (swap-space
+	      (target (file-system-label "swap")))))
+      
+      (services
+       (append (list (service tlp-service-type
+  			      (tlp-configuration
+  			       (cpu-boost-on-ac? #t)
+  			       (wifi-pwr-on-bat? #t)))
+		     (service fprintd-service-type))
+	       btrfs-service
+	       (operating-system-user-services base-system)))
+
+      (packages
+       (append '()
+	       (list emacs-exwm
+		     snapper
+		     btrfs-progs)
+	       (operating-system-packages base-system)))))
 
 
 ;; Evaluates into the definition above for use in 'sudo guix system reconfigure'.

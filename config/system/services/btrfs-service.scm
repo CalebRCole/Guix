@@ -6,26 +6,44 @@
   #:export (btrfs-service))
 
 (define btrfs-service
-  (list (simple-service 'my-persistence-links-service activation-service-type
+  (list (simple-service 'system-persistence activation-service-type
 			#~(begin
 			    (use-modules (guix build utils))
-			    (let ((home (string-append "/home/" #$%my-user))
-				  ;; Define the list of (TARGET . SOURCE)
-				  (links '((".bash_history"  . "/mnt/persist/history/bash_history")
-					   (".guile_history" . "/mnt/persist/history/guile_history")
-					   (".lesshst"       . "/mnt/persist/history/less_history"))))
-                              
-                              (mkdir-p home)
-                              (for-each 
-                               (lambda (pair)
-				 (let ((target (string-append home "/" (car pair)))
-                                       (source (cdr pair)))
-				   (unless (file-exists? target)
-				     ;; Ensure the directory containing the symlink exists
-				     ;; (Important for nested files like .config/app/config)
-				     (mkdir-p (dirname target))
-				     (symlink source target))))
-                               links))))
+
+			    (let ((files '("/etc/machine-id"))
+				  (dirs  '("/var/lib"
+					   "/var/guix"
+					   "/etc/guix"
+					   "/etc/ssh"
+					   "/etc/cups"
+					   "/etc/snapper/configs"
+					   "/etc/default/snapper"
+					   "/etc/NetworkManager/system-connections")))
+
+			      ;; 1. Handle Directories (Ensure on /persist, link from tmpfs)
+			      (for-each
+			       (lambda (dir)
+				 (let ((persist-dir (string-append "/persist" dir)))
+				   (mkdir-p persist-dir)
+				   (when (file-exists? dir)
+				     (if (eq? (stat:type (lstat dir)) 'symlink)
+					 (delete-file dir)
+					 (delete-file-recursively dir)))
+				   (mkdir-p (dirname dir))
+				   (symlink persist-dir dir)))
+			       dirs)
+
+			      ;; 2. Handle Individual Files
+			      (for-each
+			       (lambda (file)
+				 (let ((persist-file (string-append "/persist" file)))
+				   (mkdir-p (dirname persist-file))
+				   (mkdir-p (dirname file))
+				   (unless (file-exists? persist-file)
+				     (call-with-output-file persist-file (lambda (p) (display "" p))))
+				   (when (file-exists? file) (delete-file file))
+				   (symlink persist-file file)))
+			       files))))
 
 	(simple-service 'snapper-config etc-service-type
 			`(("snapper/configs/config" ,(plain-file "config"
