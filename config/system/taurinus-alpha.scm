@@ -54,7 +54,7 @@
   	     ;; Mounting for the store.
   	     (file-system
   	      (mount-point "/gnu")
-  	      (device (file-system-label "Guix"))
+  	      (device "/dev/mapper/Guix")
   	      (type "btrfs")
 	      (create-mount-point? #t)
   	      (needed-for-boot? #t)
@@ -65,7 +65,7 @@
 	     ;; Persistence sub-volume.
 	     (file-system
 	      (mount-point "/persist")
-	      (device (file-system-label "Guix"))
+	      (device "/dev/mapper/Guix")
 	      (type "btrfs")
 	      (needed-for-boot? #t)
 	      (create-mount-point? #t)
@@ -79,10 +79,9 @@
 	      (mount-point "/var/log")
 	      (type "none")
 	      (create-mount-point? #t)
-	      (flags '(bind-mount no-atime))
-	      (dependencies mapped-devices))
+	      (flags '(bind-mount no-atime))))
 
-	     %base-file-systems)))
+	     %base-file-systems))
 
       (swap-devices
        (list (swap-space
