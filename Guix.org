@@ -233,57 +233,60 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
   			  (type luks-device-mapping))))
 
      (file-systems
-      (let* ((persist (file-system
-  		     (mount-point "/persist")
-  		     (device "/dev/mapper/Guix") ; Points to the unlocked LUKS device
-  		     (type "btrfs")
-  		     (needed-for-boot? #t)
-  		     (create-mount-point? #t)
-  		     (flags '(no-atime no-suid))
-  		     (options "subvol=@persist,compress=zstd,space_cache=v2")
-  		     (dependencies mapped-devices))))
-        (append (list 
-  	       ;; Root volume. Gets overwritten by blank root sub-volume.
-    	       (file-system
-  		(mount-point "/")
-  		(device "none")
-  		(type "tmpfs")
-  		(needed-for-boot? #t)
-  		(flags '(no-dev no-atime no-suid))
-  		(options "size=25%,mode=755"))
+      (append (list 
+  	     ;; Ephemeral root.
+    	     (file-system
+  	      (mount-point "/")
+  	      (device "none")
+  	      (type "tmpfs")
+  	      (create-mount-point? #t)
+  	      (needed-for-boot? #t)
+  	      (check? #f)
+  	      (flags '(no-dev no-atime no-suid))
+  	      (options "size=25%,mode=755"))
 
-   	       ;; Boot partition.
-  	       (file-system
-    		(mount-point "/boot/efi")
-    		(device (file-system-label "BOOT"))
-    		(type "vfat")
-  		(needed-for-boot? #t)
-  		(flags '(no-exec))
-  		(options "umask=0077"))
+   	     ;; Boot partition.
+  	     (file-system
+    	      (mount-point "/boot/efi")
+    	      (device (file-system-label "BOOT"))
+    	      (type "vfat")
+  	      (create-mount-point? #t)
+  	      (needed-for-boot? #t)
+  	      (flags '(no-exec))
+  	      (options "umask=0077"))
 
-    	       ;; Mounting for the store.
-    	       (file-system
-    		(mount-point "/gnu")
-    		(device "/dev/mapper/Guix")
-    		(type "btrfs")
-    		(needed-for-boot? #t)
-    		(flags '(no-atime))
-    		(options "subvol=@gnu,compress=zstd,space_cache=v2")
-    		(dependencies mapped-devices))
+    	     ;; Mounting for the store.
+    	     (file-system
+    	      (mount-point "/gnu")
+    	      (device (file-system-label "Guix"))
+    	      (type "btrfs")
+  	      (create-mount-point? #t)
+    	      (needed-for-boot? #t)
+    	      (flags '(no-atime))
+    	      (options "subvol=@gnu,compress=zstd,space_cache=v2")
+    	      (dependencies mapped-devices))
 
-  	       ;; Persistence sub-volume.
-  	       persist
+  	     ;; Persistence sub-volume.
+  	     (file-system
+  	      (mount-point "/persist")
+  	      (device (file-system-label "Guix"))
+  	      (type "btrfs")
+  	      (needed-for-boot? #t)
+  	      (create-mount-point? #t)
+  	      (flags '(no-atime no-suid))
+  	      (options "subvol=@persist,compress=zstd,space_cache=v2")
+  	      (dependencies mapped-devices))
 
-  	       (file-system
-  		(device "/persist/var/log")
-  		(mount-point "/var/log")
-  		(type "none")
-  		(create-mount-point? #t)
-  		(needed-for-boot? #t)
-  		(flags '(bind-mount))
-  		(shepherd-requirements '(file-system-/persist))))
+  	     ;; System Logs.
+  	     (file-system
+  	      (device "/persist/var/log")
+  	      (mount-point "/var/log")
+  	      (type "none")
+  	      (create-mount-point? #t)
+  	      (flags '(bind-mount no-atime))
+  	      (dependencies mapped-devices))
 
-  	       %base-file-systems)))
+  	     %base-file-systems)))
 
         (swap-devices
          (list (swap-space
