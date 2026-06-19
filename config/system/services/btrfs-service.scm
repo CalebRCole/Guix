@@ -12,8 +12,6 @@
 
 			    (let ((files '("/etc/machine-id"))
 				  (dirs  '("/var/lib"
-					   "/var/guix"
-					   "/etc/guix"
 					   "/etc/ssh"
 					   "/etc/cups"
 					   "/etc/snapper/configs"

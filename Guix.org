@@ -37,8 +37,6 @@ Btrfs services for symlinking files and Snapper configuration.
 
   			    (let ((files '("/etc/machine-id"))
   				  (dirs  '("/var/lib"
-  					   "/var/guix"
-  					   "/etc/guix"
   					   "/etc/ssh"
   					   "/etc/cups"
   					   "/etc/snapper/configs"
