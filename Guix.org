@@ -167,18 +167,18 @@ This file serves as a base module to be imported into other systems to reduce th
                    %base-groups))
 
      (services
-      (append (list (service gnome-desktop-service-type)
-                    ;; To configure OpenSSH, pass an 'openssh-configuration'
-                    ;; record as a second argument to 'service' below.
-                    (service openssh-service-type)
-                    (service tor-service-type)
-                    (service cups-service-type)
-  		  ;; udev rules implemented for Kanata user-level access.
-  		  (udev-rules-service 'uinput 
-  				      (udev-rule "99-uinput.rules"
-  						 "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\""))
-                    (set-xorg-configuration
-                     (xorg-configuration (keyboard-layout keyboard-layout))))
+      (append (list
+               ;; To configure OpenSSH, pass an 'openssh-configuration'
+               ;; record as a second argument to 'service' below.
+               (service openssh-service-type)
+               (service tor-service-type)
+               (service cups-service-type)
+  	     ;; udev rules implemented for Kanata user-level access.
+  	     (udev-rules-service 'uinput 
+  				 (udev-rule "99-uinput.rules"
+  					    "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\""))
+               (set-xorg-configuration
+                (xorg-configuration (keyboard-layout keyboard-layout))))
   	    %desktop-services))
 
      (bootloader (bootloader-configuration
