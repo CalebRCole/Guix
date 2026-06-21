@@ -11,11 +11,38 @@
   #:use-module (gnu packages file-systems)
   #:use-module (gnu packages emacs)
   #:use-module (gnu packages emacs-xyz)
+  #:use-module (gnu packages wm)
   #:use-module ((nongnu packages linux) #:prefix nongnu:)
   #:use-module (nongnu system linux-initrd)
   #:use-module (services btrfs-service)
   #:use-module (base-system)
   #:export (taurinus-alpha-record))
+
+;; List of directories to be bind-mounted.
+(define %system-bind-mounts '("/var/log"
+			      "/var/lib"
+			      "/etc/ssh"
+			      "/etc/cups"
+			      "/etc/snapper/configs"
+			      "/etc/default/snapper"
+			      "/etc/NetworkManager/system-connections"))
+(define %home-bind-mounts   '("Documents"
+			      "Music"
+			      "Projects"
+			      "Pictures"
+			      "Templates"
+			      "Videos"
+			      ".gnupg"
+			      ".mozilla"
+			      ".tor project"
+			      ".ssh"
+			      ".local/state/shepherd"
+			      ".local/share/direnv"
+			      ".local/share/Trash"
+			      ".config/librewolf"
+			      ".config/emacs"
+			      ".cache/emacs"
+			      ".cache/guix"))
 
 ;; Exported for use in generating an image for system installation.
 (define taurinus-alpha-record
@@ -29,7 +56,8 @@
 			  (type luks-device-mapping))))
 
    (file-systems
-    (append (list 
+    (append (list
+	     ;; Partitions/Sub-volumes
 	     ;; Ephemeral root.
   	     (file-system
 	      (mount-point "/")
@@ -71,17 +99,35 @@
 	      (create-mount-point? #t)
 	      (flags '(no-atime no-suid))
 	      (options "subvol=@persist,compress=zstd,space_cache=v2")
-	      (dependencies mapped-devices))
+	      (dependencies mapped-devices)))
 
-	     ;; System Logs.
-	     (file-system
-	      (device "/persist/var/log")
-	      (mount-point "/var/log")
-	      (type "none")
-	      (create-mount-point? #t)
-	      (flags '(bind-mount no-atime))))
+	    ;; System Bind-Mounts
+	    (map (lambda (path)
+		   (file-system
+		    (mount-point path)
+		    (device (string-append "/persist" path))
+		    (type "btrfs")
+		    (create-mount-point? #t)
+		    (needed-for-boot? #t)
+		    (flags '(bind-mount))
+		    (dependencies (list (car (filter (lambda (fs)
+						       (string=? (file-system-mount-point fs) "/persist"))
+						     %base-file-systems))))))
+		 %system-bind-mounts)
 
-	     %base-file-systems))
+	     ;; Home Bind-Mounts
+	    (map (lambda (path)
+		   (file-system
+		    (mount-point (string-append "/home/" %my-user "/" path))
+		    (device (string-append "/persist/home/" %my-user "/" path))
+		    (type "btrfs")
+		    (create-mount-point? #t)
+		    (flags '(bind-mount))
+		    (dependencies (list (car (filter (lambda (fs)
+						       (string=? (file-system-mount-point fs) "/persist"))
+						     %base-file-systems))))))
+		 %home-bind-mounts)
+	    %base-file-systems))
 
       (swap-devices
        (list (swap-space
@@ -99,6 +145,7 @@
       (packages
        (append '()
 	       (list emacs-exwm
+		     sway
 		     snapper
 		     btrfs-progs)
 	       (operating-system-packages base-system)))))

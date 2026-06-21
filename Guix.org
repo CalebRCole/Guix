@@ -31,32 +31,10 @@ Btrfs services for symlinking files and Snapper configuration.
     #:export (btrfs-service))
 
   (define btrfs-service
-    (list (simple-service 'system-persistence activation-service-type
+    (list (simple-service 'persistant-symlinks activation-service-type
   			#~(begin
   			    (use-modules (guix build utils))
-
-  			    (let ((files '("/etc/machine-id"))
-  				  (dirs  '("/var/lib"
-  					   "/etc/ssh"
-  					   "/etc/cups"
-  					   "/etc/snapper/configs"
-  					   "/etc/default/snapper"
-  					   "/etc/NetworkManager/system-connections")))
-
-  			      ;; 1. Handle Directories (Ensure on /persist, link from tmpfs)
-  			      (for-each
-  			       (lambda (dir)
-  				 (let ((persist-dir (string-append "/persist" dir)))
-  				   (mkdir-p persist-dir)
-  				   (when (file-exists? dir)
-  				     (if (eq? (stat:type (lstat dir)) 'symlink)
-  					 (delete-file dir)
-  					 (delete-file-recursively dir)))
-  				   (mkdir-p (dirname dir))
-  				   (symlink persist-dir dir)))
-  			       dirs)
-
-  			      ;; 2. Handle Individual Files
+  			    (let ((files '("/etc/machine-id")))
   			      (for-each
   			       (lambda (file)
   				 (let ((persist-file (string-append "/persist" file)))
@@ -213,11 +191,38 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
     #:use-module (gnu packages file-systems)
     #:use-module (gnu packages emacs)
     #:use-module (gnu packages emacs-xyz)
+    #:use-module (gnu packages wm)
     #:use-module ((nongnu packages linux) #:prefix nongnu:)
     #:use-module (nongnu system linux-initrd)
     #:use-module (services btrfs-service)
     #:use-module (base-system)
     #:export (taurinus-alpha-record))
+
+  ;; List of directories to be bind-mounted.
+  (define %system-bind-mounts '("/var/log"
+  			      "/var/lib"
+  			      "/etc/ssh"
+  			      "/etc/cups"
+  			      "/etc/snapper/configs"
+  			      "/etc/default/snapper"
+  			      "/etc/NetworkManager/system-connections"))
+  (define %home-bind-mounts   '("Documents"
+  			      "Music"
+  			      "Projects"
+  			      "Pictures"
+  			      "Templates"
+  			      "Videos"
+  			      ".gnupg"
+  			      ".mozilla"
+  			      ".tor project"
+  			      ".ssh"
+  			      ".local/state/shepherd"
+  			      ".local/share/direnv"
+  			      ".local/share/Trash"
+  			      ".config/librewolf"
+  			      ".config/emacs"
+  			      ".cache/emacs"
+  			      ".cache/guix"))
 
   ;; Exported for use in generating an image for system installation.
   (define taurinus-alpha-record
@@ -231,7 +236,8 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
   			  (type luks-device-mapping))))
 
      (file-systems
-      (append (list 
+      (append (list
+  	     ;; Partitions/Sub-volumes
   	     ;; Ephemeral root.
     	     (file-system
   	      (mount-point "/")
@@ -273,17 +279,35 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
   	      (create-mount-point? #t)
   	      (flags '(no-atime no-suid))
   	      (options "subvol=@persist,compress=zstd,space_cache=v2")
-  	      (dependencies mapped-devices))
+  	      (dependencies mapped-devices)))
 
-  	     ;; System Logs.
-  	     (file-system
-  	      (device "/persist/var/log")
-  	      (mount-point "/var/log")
-  	      (type "none")
-  	      (create-mount-point? #t)
-  	      (flags '(bind-mount no-atime))))
+  	    ;; System Bind-Mounts
+  	    (map (lambda (path)
+  		   (file-system
+  		    (mount-point path)
+  		    (device (string-append "/persist" path))
+  		    (type "btrfs")
+  		    (create-mount-point? #t)
+  		    (needed-for-boot? #t)
+  		    (flags '(bind-mount))
+  		    (dependencies (list (car (filter (lambda (fs)
+  						       (string=? (file-system-mount-point fs) "/persist"))
+  						     %base-file-systems))))))
+  		 %system-bind-mounts)
 
-  	     %base-file-systems))
+  	     ;; Home Bind-Mounts
+  	    (map (lambda (path)
+  		   (file-system
+  		    (mount-point (string-append "/home/" %my-user "/" path))
+  		    (device (string-append "/persist/home/" %my-user "/" path))
+  		    (type "btrfs")
+  		    (create-mount-point? #t)
+  		    (flags '(bind-mount))
+  		    (dependencies (list (car (filter (lambda (fs)
+  						       (string=? (file-system-mount-point fs) "/persist"))
+  						     %base-file-systems))))))
+  		 %home-bind-mounts)
+  	    %base-file-systems))
 
         (swap-devices
          (list (swap-space
@@ -301,6 +325,7 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
         (packages
          (append '()
   	       (list emacs-exwm
+  		     sway
   		     snapper
   		     btrfs-progs)
   	       (operating-system-packages base-system)))))
@@ -414,31 +439,6 @@ Like the top-level services, this services directory defines GNU Shepherd servic
   	kanata-service
   	power-service))
 #+end_src
-
-***** temp
-pulled from system for dir lists to be shared
-
-(map (lambda (paths)
-	       	     (persistent-home-subvolume paths persist))
-	       	   (list "Projects"
-	       		 "Documents"
-	       		 "Pictures"
-	       		 "Music"
-	       		 "Videos"
-	       		 "Templates"
-	       		 ".ssh"
-	       		 ".gnupg"
-	       		 ".mozilla"		 ; Firefox
-	       		 ".tor project"		 ; Tor
-	       		 ".local/state/shephard" ; Shepherd Logs
-	       		 ".local/share/direnv"   ; Direnv
-	       		 ".local/share/Trash"	 ; XDG trash dir
-	       		 ".config/librewolf"	 ; Librewolf Config (Extensions, etc.)
-	       		 ".config/emacs"	 ; Emacs Config
-	       		 ".cache/emacs"		 ; Emacs Cache
-	       		 ".cache/guix"		 ; Guix Cache
-	       		 )
-		   )
 
 **** Bash
 

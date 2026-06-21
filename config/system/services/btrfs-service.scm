@@ -6,32 +6,10 @@
   #:export (btrfs-service))
 
 (define btrfs-service
-  (list (simple-service 'system-persistence activation-service-type
+  (list (simple-service 'persistant-symlinks activation-service-type
 			#~(begin
 			    (use-modules (guix build utils))
-
-			    (let ((files '("/etc/machine-id"))
-				  (dirs  '("/var/lib"
-					   "/etc/ssh"
-					   "/etc/cups"
-					   "/etc/snapper/configs"
-					   "/etc/default/snapper"
-					   "/etc/NetworkManager/system-connections")))
-
-			      ;; 1. Handle Directories (Ensure on /persist, link from tmpfs)
-			      (for-each
-			       (lambda (dir)
-				 (let ((persist-dir (string-append "/persist" dir)))
-				   (mkdir-p persist-dir)
-				   (when (file-exists? dir)
-				     (if (eq? (stat:type (lstat dir)) 'symlink)
-					 (delete-file dir)
-					 (delete-file-recursively dir)))
-				   (mkdir-p (dirname dir))
-				   (symlink persist-dir dir)))
-			       dirs)
-
-			      ;; 2. Handle Individual Files
+			    (let ((files '("/etc/machine-id")))
 			      (for-each
 			       (lambda (file)
 				 (let ((persist-file (string-append "/persist" file)))
