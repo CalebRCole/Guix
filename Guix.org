@@ -221,6 +221,12 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
   			      ".cache/guix"))
 
   ;; File-System defined as a separate variable for use as a dependency.
+  (define %luks
+    (mapped-device
+     (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
+     (target "Guix")
+     (type luks-device-mapping)))
+
   (define %persist
     (file-system
      (mount-point "/persist")
@@ -230,7 +236,7 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
      (create-mount-point? #t)
      (flags '(no-atime no-suid))
      (options "subvol=@persist,compress=zstd,space_cache=v2")
-     (dependencies mapped-devices)))
+     (dependencies %luks)))
 
   ;; Exported for use in generating an image for system installation.
   (define taurinus-alpha-record
@@ -238,10 +244,7 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
      (inherit base-system)
      (host-name "taurinus-alpha")
 
-     (mapped-devices (list (mapped-device
-  			  (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
-  			  (target "Guix")
-  			  (type luks-device-mapping))))
+     (mapped-devices (list %luks))
 
      (file-systems
       (append (list
@@ -276,7 +279,7 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
     	      (needed-for-boot? #t)
     	      (flags '(no-atime))
     	      (options "subvol=@gnu,compress=zstd,space_cache=v2")
-    	      (dependencies mapped-devices))
+    	      (dependencies %luks))
 
   	     ;; Persistence sub-volume.
   	     %persist)
