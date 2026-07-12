@@ -220,6 +220,18 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
   			      ".cache/emacs"
   			      ".cache/guix"))
 
+  ;; File-System defined as a separate variable for use as a dependency.
+  (define %persist
+    (file-system
+     (mount-point "/persist")
+     (device "/dev/mapper/Guix")
+     (type "btrfs")
+     (needed-for-boot? #t)
+     (create-mount-point? #t)
+     (flags '(no-atime no-suid))
+     (options "subvol=@persist,compress=zstd,space_cache=v2")
+     (dependencies mapped-devices)))
+
   ;; Exported for use in generating an image for system installation.
   (define taurinus-alpha-record
     (operating-system
@@ -267,64 +279,58 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
     	      (dependencies mapped-devices))
 
   	     ;; Persistence sub-volume.
-  	     (file-system
-  	      (mount-point "/persist")
-  	      (device "/dev/mapper/Guix")
-  	      (type "btrfs")
-  	      (needed-for-boot? #t)
-  	      (create-mount-point? #t)
-  	      (flags '(no-atime no-suid))
-  	      (options "subvol=@persist,compress=zstd,space_cache=v2")
-  	      (dependencies mapped-devices)))
+  	     %persist)
 
   	    ;; System Bind-Mounts
   	    (map (lambda (path)
   		   (file-system
   		    (mount-point path)
   		    (device (string-append "/persist" path))
-  		    (type "btrfs")
+  		    (type "none")
   		    (create-mount-point? #t)
   		    (needed-for-boot? #t)
   		    (flags '(bind-mount))
-  		    (dependencies (list (car (filter (lambda (fs)
-  						       (string=? (file-system-mount-point fs) "/persist"))
-  						     %base-file-systems))))))
+  		    (dependencies (list %persist))))
   		 %system-bind-mounts)
 
-  	     ;; Home Bind-Mounts
+  	    ;; Home Bind-Mounts
   	    (map (lambda (path)
   		   (file-system
   		    (mount-point (string-append "/home/" %my-user "/" path))
   		    (device (string-append "/persist/home/" %my-user "/" path))
-  		    (type "btrfs")
+  		    (type "none")
   		    (create-mount-point? #t)
   		    (flags '(bind-mount))
-  		    (dependencies (list (car (filter (lambda (fs)
-  						       (string=? (file-system-mount-point fs) "/persist"))
-  						     %base-file-systems))))))
+  		    (dependencies (list %persist))))
   		 %home-bind-mounts)
   	    %base-file-systems))
 
-        (swap-devices
-         (list (swap-space
-  	      (target (file-system-label "swap")))))
-        
-        (services
-         (append (list (service tlp-service-type
-    			      (tlp-configuration
-    			       (cpu-boost-on-ac? #t)
-    			       (wifi-pwr-on-bat? #t)))
-  		     (service fprintd-service-type))
-  	       btrfs-service
-  	       (operating-system-user-services base-system)))
+     (swap-devices
+      (list (swap-space
+  	   (target "/persist/swapfile")
+  	   (dependencies (list %persist)))))
 
-        (packages
-         (append '()
-  	       (list emacs-exwm
-  		     sway
-  		     snapper
-  		     btrfs-progs)
-  	       (operating-system-packages base-system)))))
+     (services
+      (append (list (service tlp-service-type
+    			   (tlp-configuration
+    			    (cpu-boost-on-ac? #t)
+    			    (wifi-pwr-on-bat? #t)))
+  		  (service fprintd-service-type)
+  		  (service zram-device-service-type
+  			   (zram-configuration
+  			    (size "100%")
+  			    (compression-algorith 'zstd)
+  			    (priority 100))))
+  	    btrfs-service
+  	    (operating-system-user-services base-system)))
+
+     (packages
+      (append '()
+  	    (list emacs-exwm
+  		  sway
+  		  snapper
+  		  btrfs-progs)
+  	    (operating-system-packages base-system)))))
 
 
   ;; Evaluates into the definition above for use in 'sudo guix system reconfigure'.
