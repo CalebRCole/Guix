@@ -33,16 +33,17 @@
                  %base-groups))
 
    (services
-    (append (list
+    (cons* (list
              ;; To configure OpenSSH, pass an 'openssh-configuration'
              ;; record as a second argument to 'service' below.
              (service openssh-service-type)
              (service tor-service-type)
              (service cups-service-type)
 	     ;; udev rules implemented for Kanata user-level access.
-	     (udev-rules-service 'uinput 
-				 (udev-rule "99-uinput.rules"
-					    "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\""))
+	     (udev-rules-service 'uinput
+				 (udev-rule "99-input.rules"
+					    "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\"")
+				 #:groups '(uinput))
              (set-xorg-configuration
               (xorg-configuration (keyboard-layout keyboard-layout))))
 	    %desktop-services))
@@ -52,7 +53,7 @@
 		(targets (list "/boot/efi"))
 		(keyboard-layout keyboard-layout)))
 
-   (initrd-modules (append '("vmd") %base-initrd-modules))
+   (initrd-modules (cons* '("vmd") %base-initrd-modules))
 
    (file-systems %base-file-systems)
 

@@ -139,16 +139,17 @@ This file serves as a base module to be imported into other systems to reduce th
                    %base-groups))
 
      (services
-      (append (list
+      (cons* (list
                ;; To configure OpenSSH, pass an 'openssh-configuration'
                ;; record as a second argument to 'service' below.
                (service openssh-service-type)
                (service tor-service-type)
                (service cups-service-type)
   	     ;; udev rules implemented for Kanata user-level access.
-  	     (udev-rules-service 'uinput 
-  				 (udev-rule "99-uinput.rules"
-  					    "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\""))
+  	     (udev-rules-service 'uinput
+  				 (udev-rule "99-input.rules"
+  					    "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\"")
+  				 #:groups '(uinput))
                (set-xorg-configuration
                 (xorg-configuration (keyboard-layout keyboard-layout))))
   	    %desktop-services))
@@ -158,7 +159,7 @@ This file serves as a base module to be imported into other systems to reduce th
   		(targets (list "/boot/efi"))
   		(keyboard-layout keyboard-layout)))
 
-     (initrd-modules (append '("vmd") %base-initrd-modules))
+     (initrd-modules (cons* '("vmd") %base-initrd-modules))
 
      (file-systems %base-file-systems)
 
@@ -183,6 +184,7 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
     #:use-module (gnu services)
     #:use-module (gnu services pm)
     #:use-module (gnu services authentication)
+    #:use-module (gnu services linux)
     #:use-module (gnu packages linux)
     #:use-module (gnu packages file-systems)
     #:use-module (gnu packages emacs)
@@ -220,7 +222,6 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
   			      ".cache/emacs"
   			      ".cache/guix"))
 
-  ;; File-System defined as a separate variable for use as a dependency.
   (define %luks
     (mapped-device
      (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
@@ -235,8 +236,8 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
      (needed-for-boot? #t)
      (create-mount-point? #t)
      (flags '(no-atime no-suid))
-     (options "subvol=@persist,compress=zstd,space_cache=v2")
-     (dependencies %luks)))
+     (options "subvol=persist,compress=zstd,space_cache=v2")
+     (dependencies (list %luks))))
 
   ;; Exported for use in generating an image for system installation.
   (define taurinus-alpha-record
@@ -247,71 +248,72 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
      (mapped-devices (list %luks))
 
      (file-systems
-      (append (list
-  	     ;; Partitions/Sub-volumes
-  	     ;; Ephemeral root.
-    	     (file-system
-  	      (mount-point "/")
-  	      (device "none")
-  	      (type "tmpfs")
-  	      (create-mount-point? #t)
-  	      (needed-for-boot? #t)
-  	      (check? #f)
-  	      (flags '(no-dev no-atime no-suid))
-  	      (options "size=25%,mode=755"))
+      (cons* 
+       ;; Partitions/Sub-volumes
+       ;; Ephemeral root.
+       (file-system
+        (mount-point "/")
+        (device "none")
+        (type "tmpfs")
+        (create-mount-point? #t)
+        (needed-for-boot? #t)
+        (check? #f)
+        (flags '(no-dev no-atime no-diratime no-suid))
+        (options "size=25%,mode=755"))
 
-   	     ;; Boot partition.
-  	     (file-system
-    	      (mount-point "/boot/efi")
-    	      (device (file-system-label "BOOT"))
-    	      (type "vfat")
-  	      (create-mount-point? #t)
-  	      (needed-for-boot? #t)
-  	      (flags '(no-exec))
-  	      (options "umask=0077"))
+       ;; Boot partition.
+       (file-system
+        (mount-point "/boot/efi")
+        (device (file-system-label "BOOT"))
+        (type "vfat")
+        (create-mount-point? #t)
+        (needed-for-boot? #t)
+        (flags '(no-exec))
+        (options "umask=0077"))
 
-    	     ;; Mounting for the store.
-    	     (file-system
-    	      (mount-point "/gnu")
-    	      (device "/dev/mapper/Guix")
-    	      (type "btrfs")
-  	      (create-mount-point? #t)
-    	      (needed-for-boot? #t)
-    	      (flags '(no-atime))
-    	      (options "subvol=@gnu,compress=zstd,space_cache=v2")
-    	      (dependencies %luks))
+       ;; Mounting for the store.
+       (file-system
+        (mount-point "/gnu")
+        (device "/dev/mapper/Guix")
+        (type "btrfs")
+        (create-mount-point? #t)
+        (needed-for-boot? #t)
+        (flags '(no-atime no-diratime))
+        (options "subvol=gnu,compress=zstd,space_cache=v2")
+        (dependencies (list %luks)))
 
-  	     ;; Persistence sub-volume.
-  	     %persist)
+       ;; Persistence sub-volume.
+       %persist
 
-  	    ;; System Bind-Mounts
-  	    (map (lambda (path)
-  		   (file-system
-  		    (mount-point path)
-  		    (device (string-append "/persist" path))
-  		    (type "none")
-  		    (create-mount-point? #t)
-  		    (needed-for-boot? #t)
-  		    (flags '(bind-mount))
-  		    (dependencies (list %persist))))
-  		 %system-bind-mounts)
+       ;; System Bind-Mounts
+       (append (map (lambda (path)
+  		    (file-system
+  		     (mount-point path)
+  		     (device (string-append "/persist" path))
+  		     (type "none")
+  		     (create-mount-point? #t)
+  		     (needed-for-boot? #t)
+  		     (flags '(bind-mount))
+  		     (dependencies (list %persist))))
+  		  %system-bind-mounts)
 
-  	    ;; Home Bind-Mounts
-  	    (map (lambda (path)
-  		   (file-system
-  		    (mount-point (string-append "/home/" %my-user "/" path))
-  		    (device (string-append "/persist/home/" %my-user "/" path))
-  		    (type "none")
-  		    (create-mount-point? #t)
-  		    (flags '(bind-mount))
-  		    (dependencies (list %persist))))
-  		 %home-bind-mounts)
-  	    %base-file-systems))
+  	     ;; Home Bind-Mounts
+  	     (map (lambda (path)
+  		    (file-system
+  		     (mount-point (string-append "/home/" %my-user "/" path))
+  		     (device (string-append "/persist/home/" %my-user "/" path))
+  		     (type "none")
+  		     (create-mount-point? #t)
+  		     (flags '(bind-mount))))
+  		  %home-bind-mounts)
+  	     
+  	     %base-file-systems)))
 
      (swap-devices
       (list (swap-space
   	   (target "/persist/swapfile")
-  	   (dependencies (list %persist)))))
+  	   (dependencies (filter (file-system-mount-point-predicate "/persist")
+  				 file-systems)))))
 
      (services
       (append (list (service tlp-service-type
@@ -320,17 +322,15 @@ The configuration for my main laptop, currently my T14 Gen 6 Thinkpad.
     			    (wifi-pwr-on-bat? #t)))
   		  (service fprintd-service-type)
   		  (service zram-device-service-type
-  			   (zram-configuration
+  			   (zram-device-configuration
   			    (size "100%")
-  			    (compression-algorith 'zstd)
+  			    (compression-algorithm 'zstd)
   			    (priority 100))))
   	    btrfs-service
   	    (operating-system-user-services base-system)))
 
      (packages
-      (append '()
-  	    (list emacs-exwm
-  		  sway
+      (append (list sway
   		  snapper
   		  btrfs-progs)
   	    (operating-system-packages base-system)))))
@@ -397,9 +397,7 @@ The configuration for other laptops besides my daily driver.
   	  (operating-system-user-services base-system)))
 
    (packages
-    (append '()
-  	  (list emacs-exwm)
-  	  (operating-system-packages base-system))))
+    operating-system-packages base-system))
 #+end_src
 
 *** gnou
@@ -666,14 +664,11 @@ Inside is all packages to be installed for Emacs. Emacs has great integration wi
   	  "emacs-guix"
   	  "emacs-no-littering"
   	  "emacs-direnv"
-  	  "emacs-ebib"
   	  "emacs-geiser"
   	  "emacs-geiser-guile"
-  	  "emacs-gnuplot"
   	  "emacs-slime"
-  	  "emacs-leetcode"
-  	  "emacs-auctex"
   	  "emacs-doom-modeline"
+  	  "emacs-doom-themes"
   	  "emacs-nerd-icons"
   	  "emacs-highlight-indent-guides"
   	  "emacs-volatile-highlights"
@@ -681,23 +676,11 @@ Inside is all packages to be installed for Emacs. Emacs has great integration wi
   	  "emacs-vterm"
   	  "emacs-eshell-git-prompt"
   	  "emacs-olivetti"
-  	  "emacs-dirvish"
-  	  "emacs-cc-mode"
   	  "racket"
   	  "emacs-racket-mode"
   	  "emacs-ob-racket"
   	  "emacs-org-superstar"
-  	  "emacs-org-roam"
-  	  "emacs-org-roam-bibtex"
-  	  "emacs-citar"
-  	  "emacs-citar-org-roam"
-  	  "emacs-simple-httpd"
-  	  "emacs-websocket"
-  	  "emacs-org-noter"
   	  "emacs-pdf-tools"
-  	  "emacs-org-pdftools"
-  	  "emacs-org-transclusion"
-  	  "emacs-zotra"
   	  "emacs-flycheck"
   	  "emacs-jinx"
   	  "hunspell-dict-en-us"
@@ -720,9 +703,7 @@ Inside is all packages to be installed for Emacs. Emacs has great integration wi
   	  "emacs-ace-window"
   	  "emacs-crux"
   	  "emacs-expand-region"
-  	  "emacs-combobulate"
   	  "emacs-dape"
-  	  "emacs-pyvenv"
   	  "emacs-eglot"
   	  "emacs-zig-mode"
   	  "emacs-nix-mode"
@@ -730,7 +711,6 @@ Inside is all packages to be installed for Emacs. Emacs has great integration wi
   	  "emacs-haskell-mode"
   	  "emacs-kanata-kbd-mode"
   	  "emacs-magit"
-  	  "emacs-git-auto-commit-mode"
   	  "emacs-git-modes"
   	  "emacs-forge"
   	  "emacs-ghub"
@@ -741,12 +721,6 @@ Inside is all packages to be installed for Emacs. Emacs has great integration wi
   	  "emacs-helpful"
   	  "book-sicp"
   	  "font-abattis-cantarell"
-  	  "emacs-exwm"
-  	  "emacs-exwm-edit"
-  	  "emacs-exwm-mff"
-  	  "emacs-exwm-firefox"
-  	  "emacs-exwm-modeline"
-  	  "emacs-exwm-ss"
   	  "emacs-desktop-environment"))))
 #+end_src
 
@@ -833,67 +807,120 @@ Files contains all non-Guile source code that will be used for Guix's configurat
 Kanata keyboard remapper's configuration.
 
 #+begin_src kbd :tangle "./files/kanata/config.kbd"
+;; Configuration
+
 (defcfg
   process-unmapped-keys yes
-  )
+  allow-hardware-repeat false
+)
 
 (defsrc
-  esc left caps a s d f j k l ; rsft ralt rctl
-  x c v
-  )
+  `                                                                    -     =      bspc
+           q     w     e     r     t     y     u     i     o     p     [     ]
+  caps     a     s     d     f     g     h     j     k     l     ;     '     ret
+  lsft     z     x     c     v     b     n     m     ,     .     /     rsft
+  lctl     lmet  lalt              spc                     ralt        rctl
+)
+
+
+;; Variables
 
 (defvar
-  tap-time 175
-  hold-time 175
-  chord-timeout 50
-  )
+  tap-time         0
+  hold-time        150
+  chord-timeout    50
+)
 
-(defchords main $chord-timeout
-  ;; Digraphs
-  (f d) (macro t h)
-  (d s) (macro s h)
-  (s a) (macro g h)
-  (c v) (macro c h)
-  (x c) (macro p h)
 
-  ;; Enter Chord
-  (j k) ret
-
-  ;; Modifiers when held, chords when tapped together
-  (a) @met_a
-  (s) @calt_s
-  (d) @alt_d
-  (f) @ctl_f
-  (j) @crl_j
-  (k) @alt_k
-  (l) @calt_l
-  (x) x
-  (c) c
-  (v) v
-  )
+;; Aliases
 
 (defalias
-  ;; Caps = Tap for Escape, Hold for Control
-  caps_crtl (tap-hole $tap-time $hold-time esc lctrl)
+  num (layer-while-held numbers-and-symbols)
+  
+  back (fork C-bspc bspc (lsft)) ;; Makes backspace delete words by default, and control-backspace delete characters.
 
-  ;; Space Cadet Keys
-  sc_l (tap-hold-release $tap-time $hold-time S-9 lsft)
-  sc_r (tap-hold-release $tap-time $hold-time S-0 rsft)
+  sp_l (tap-hold $tap-time $hold-time spc (layer-while-held space-layer))
 
-  ;; Home Row Modifiers
-  ;; Index = Control, Middle = Alt, Ring = Control+Alt, Pinky = Super
-  met_a   (tap-hold-release $tap-time $hold-time a lmet)
-  met_sem (tap-hold-release $tap-time $hold-time ; rmet)
-  calt_s  (tap-hold-release $tap-time $hold-time s (multi lalt lclt))
-  calt_l  (tap-hold-release $tap-time $hold-time l (multi ralt rctl))
-  alt_d   (tap-hold-release $tap-time $hold-time d lalt)
-  alt_k   (tap-hold-release $tap-time $hold-time k ralt)
-  ctl_f   (tap-hold-release $tap-time $hold-time f lctl)
-  ctl_j   (tap-hold-release $tap-time $hold-time j rctl)
-  )
+  gob (tap-hold $tap-time $hold-time ` (layer-switch base))
+)
+
+
+;; Templates
+
+(deftemplate th (name key modifier)
+  $name (tap-hold $tap-time $hold-time $key $modifier)
+)
+
+
+;; Template Aliases
+;; 't' at beginning of alias refers to a tap-hold action!
+
+(defalias
+  (t! th tcec esc lctl)  ;; Caps into tap escape, hold control
+  (t! th tscl lpar lsft) ;; Space Cadet left-shift
+  (t! th tscr rpar rsft) ;; Space Cadet right-shift
+
+  ;; Home-row modifiers
+  ;; Outside -> Inside
+  ;; Super/Meta, Alt, Control, Shift
+  (t! th tsa s lalt)
+  (t! th tdc d lctl)
+  (t! th tfs f lsft)
+  
+  (t! th tjs j rsft)
+  (t! th tkc k rctl)
+  (t! th tla l lalt)
+)
+
+
+;; Chords
+
+
+
+
+;; Layers
 
 (deflayer base
-  caps @sc_l @cap_ctrl (chord main a) (chord main s) (chord main d) (chord main f) (chord main j) (chord main k) (chord main l) @met_sem @sc_r f13 f14
-  (chord main x) (chord main c) (chord main v)
-  )
+  `                                                                    -     =     @back
+           q     w     e     r     t     y     u     i     o     p     [     ]
+  @tcec    a     @tsa  @tdc  @tfs  g     h     @tjs  @tkc  @tla  ;     '     ret
+  @tscl    z     x     c     v     b     n     m     ,     .     /     @tscr
+  lctl     lmet  @num              @sp_l                   ralt        rctl
+)
+
+
+(deflayer numbers-and-symbols
+  `                                                                    -     =     _
+           1     2     3     4     5     6     7     8     9     0     [     ]
+  _        S-1   S-2   S-3   S-4   S-5   S-6   S-7   S-8   S-eql min   eql   _
+  _        S-`   \     S-[   S-,   S-\   S-.   S-]   S-;   S-'   /     _
+  lmet     _     _                 _                       _           _
+)
+
+(deflayer standard
+  @gob                                                                 -     =     bspc
+           q     w     e     r     t     y     u     i     o     p     [     ]
+  @tcec    a     s     d     f     g     h     j     k     l     ;     '     ret
+  lsft     z     x     c     v     b     n     m     ,     .     /     rsft
+  lctl     lmet  lalt              spc                     ralt        rctl
+)
+
+(deflayermap (space-layer)
+  n bspc
+  b C-bspc
+  m del
+  , C-del
+  o ret
+  h left
+  j down
+  k up
+  l right
+  a home
+  e end
+  d pgdn
+  u pgup
+  caps (tap-dance $hold-time (esc lctl S-ctl)) ;; 1 = Esc, 2 = Ctrl, 3 = Shift-Ctrl
+  ` lrld
+  = (layer-switch gaming)
+)
 #+end_src

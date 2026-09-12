@@ -50,6 +50,4 @@
 	  (operating-system-user-services base-system)))
 
  (packages
-  (append '()
-	  (list emacs-exwm)
-	  (operating-system-packages base-system))))
+  operating-system-packages base-system))

@@ -7,6 +7,7 @@
   #:use-module (gnu services)
   #:use-module (gnu services pm)
   #:use-module (gnu services authentication)
+  #:use-module (gnu services linux)
   #:use-module (gnu packages linux)
   #:use-module (gnu packages file-systems)
   #:use-module (gnu packages emacs)
@@ -44,7 +45,12 @@
 			      ".cache/emacs"
 			      ".cache/guix"))
 
-;; File-System defined as a separate variable for use as a dependency.
+(define %luks
+  (mapped-device
+   (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
+   (target "Guix")
+   (type luks-device-mapping)))
+
 (define %persist
   (file-system
    (mount-point "/persist")
@@ -53,8 +59,8 @@
    (needed-for-boot? #t)
    (create-mount-point? #t)
    (flags '(no-atime no-suid))
-   (options "subvol=@persist,compress=zstd,space_cache=v2")
-   (dependencies mapped-devices)))
+   (options "subvol=persist,compress=zstd,space_cache=v2")
+   (dependencies (list %luks))))
 
 ;; Exported for use in generating an image for system installation.
 (define taurinus-alpha-record
@@ -62,77 +68,75 @@
    (inherit base-system)
    (host-name "taurinus-alpha")
 
-   (mapped-devices (list (mapped-device
-			  (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
-			  (target "Guix")
-			  (type luks-device-mapping))))
+   (mapped-devices (list %luks))
 
    (file-systems
-    (append (list
-	     ;; Partitions/Sub-volumes
-	     ;; Ephemeral root.
-  	     (file-system
-	      (mount-point "/")
-	      (device "none")
-	      (type "tmpfs")
-	      (create-mount-point? #t)
-	      (needed-for-boot? #t)
-	      (check? #f)
-	      (flags '(no-dev no-atime no-suid))
-	      (options "size=25%,mode=755"))
+    (cons* 
+     ;; Partitions/Sub-volumes
+     ;; Ephemeral root.
+     (file-system
+      (mount-point "/")
+      (device "none")
+      (type "tmpfs")
+      (create-mount-point? #t)
+      (needed-for-boot? #t)
+      (check? #f)
+      (flags '(no-dev no-atime no-diratime no-suid))
+      (options "size=25%,mode=755"))
 
- 	     ;; Boot partition.
-	     (file-system
-  	      (mount-point "/boot/efi")
-  	      (device (file-system-label "BOOT"))
-  	      (type "vfat")
-	      (create-mount-point? #t)
-	      (needed-for-boot? #t)
-	      (flags '(no-exec))
-	      (options "umask=0077"))
+     ;; Boot partition.
+     (file-system
+      (mount-point "/boot/efi")
+      (device (file-system-label "BOOT"))
+      (type "vfat")
+      (create-mount-point? #t)
+      (needed-for-boot? #t)
+      (flags '(no-exec))
+      (options "umask=0077"))
 
-  	     ;; Mounting for the store.
-  	     (file-system
-  	      (mount-point "/gnu")
-  	      (device "/dev/mapper/Guix")
-  	      (type "btrfs")
-	      (create-mount-point? #t)
-  	      (needed-for-boot? #t)
-  	      (flags '(no-atime))
-  	      (options "subvol=@gnu,compress=zstd,space_cache=v2")
-  	      (dependencies mapped-devices))
+     ;; Mounting for the store.
+     (file-system
+      (mount-point "/gnu")
+      (device "/dev/mapper/Guix")
+      (type "btrfs")
+      (create-mount-point? #t)
+      (needed-for-boot? #t)
+      (flags '(no-atime no-diratime))
+      (options "subvol=gnu,compress=zstd,space_cache=v2")
+      (dependencies (list %luks)))
 
-	     ;; Persistence sub-volume.
-	     %persist)
+     ;; Persistence sub-volume.
+     %persist
 
-	    ;; System Bind-Mounts
-	    (map (lambda (path)
-		   (file-system
-		    (mount-point path)
-		    (device (string-append "/persist" path))
-		    (type "none")
-		    (create-mount-point? #t)
-		    (needed-for-boot? #t)
-		    (flags '(bind-mount))
-		    (dependencies (list %persist))))
-		 %system-bind-mounts)
+     ;; System Bind-Mounts
+     (append (map (lambda (path)
+		    (file-system
+		     (mount-point path)
+		     (device (string-append "/persist" path))
+		     (type "none")
+		     (create-mount-point? #t)
+		     (needed-for-boot? #t)
+		     (flags '(bind-mount))
+		     (dependencies (list %persist))))
+		  %system-bind-mounts)
 
-	    ;; Home Bind-Mounts
-	    (map (lambda (path)
-		   (file-system
-		    (mount-point (string-append "/home/" %my-user "/" path))
-		    (device (string-append "/persist/home/" %my-user "/" path))
-		    (type "none")
-		    (create-mount-point? #t)
-		    (flags '(bind-mount))
-		    (dependencies (list %persist))))
-		 %home-bind-mounts)
-	    %base-file-systems))
+	     ;; Home Bind-Mounts
+	     (map (lambda (path)
+		    (file-system
+		     (mount-point (string-append "/home/" %my-user "/" path))
+		     (device (string-append "/persist/home/" %my-user "/" path))
+		     (type "none")
+		     (create-mount-point? #t)
+		     (flags '(bind-mount))))
+		  %home-bind-mounts)
+	     
+	     %base-file-systems)))
 
    (swap-devices
     (list (swap-space
 	   (target "/persist/swapfile")
-	   (dependencies (list %persist)))))
+	   (dependencies (filter (file-system-mount-point-predicate "/persist")
+				 file-systems)))))
 
    (services
     (append (list (service tlp-service-type
@@ -141,17 +145,15 @@
   			    (wifi-pwr-on-bat? #t)))
 		  (service fprintd-service-type)
 		  (service zram-device-service-type
-			   (zram-configuration
+			   (zram-device-configuration
 			    (size "100%")
-			    (compression-algorith 'zstd)
+			    (compression-algorithm 'zstd)
 			    (priority 100))))
 	    btrfs-service
 	    (operating-system-user-services base-system)))
 
    (packages
-    (append '()
-	    (list emacs-exwm
-		  sway
+    (append (list sway
 		  snapper
 		  btrfs-progs)
 	    (operating-system-packages base-system)))))
