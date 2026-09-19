@@ -30,30 +30,28 @@
                  %base-user-accounts))
 
    (groups (cons* (user-group (name "uinput") (system? #t))
-                 %base-groups))
+                  %base-groups))
 
    (services
-    (cons* (list
-             ;; To configure OpenSSH, pass an 'openssh-configuration'
-             ;; record as a second argument to 'service' below.
-             (service openssh-service-type)
-             (service tor-service-type)
-             (service cups-service-type)
-	     ;; udev rules implemented for Kanata user-level access.
-	     (udev-rules-service 'uinput
-				 (udev-rule "99-input.rules"
-					    "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\"")
-				 #:groups '(uinput))
-             (set-xorg-configuration
-              (xorg-configuration (keyboard-layout keyboard-layout))))
-	    %desktop-services))
+    (cons* 
+     ;; To configure OpenSSH, pass an 'openssh-configuration'
+     ;; record as a second argument to 'service' below.
+     (service openssh-service-type)
+     (service tor-service-type)
+     (service cups-service-type)
+     ;; udev rules implemented for Kanata user-level access.
+     (udev-rules-service 'uinput
+			 (udev-rule "99-input.rules"
+				    "KERNEL==\"uinput\", MODE=\"0660\", GROUP=\"uinput\", OPTIONS+=\"static_node=uinput\"")
+			 #:groups '(uinput))
+     (set-xorg-configuration
+      (xorg-configuration (keyboard-layout keyboard-layout)))
+     %desktop-services))
 
    (bootloader (bootloader-configuration
 		(bootloader grub-efi-bootloader)
 		(targets (list "/boot/efi"))
 		(keyboard-layout keyboard-layout)))
-
-   (initrd-modules (cons* '("vmd") %base-initrd-modules))
 
    (file-systems %base-file-systems)
 

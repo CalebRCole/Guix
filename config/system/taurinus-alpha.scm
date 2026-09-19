@@ -12,55 +12,12 @@
   #:use-module (gnu packages file-systems)
   #:use-module (gnu packages emacs)
   #:use-module (gnu packages emacs-xyz)
-  #:use-module (gnu packages wm)
+  #:use-module (gnu packages window-management)
   #:use-module ((nongnu packages linux) #:prefix nongnu:)
   #:use-module (nongnu system linux-initrd)
   #:use-module (services btrfs-service)
   #:use-module (base-system)
   #:export (taurinus-alpha-record))
-
-;; List of directories to be bind-mounted.
-(define %system-bind-mounts '("/var/log"
-			      "/var/lib"
-			      "/etc/ssh"
-			      "/etc/cups"
-			      "/etc/snapper/configs"
-			      "/etc/default/snapper"
-			      "/etc/NetworkManager/system-connections"))
-(define %home-bind-mounts   '("Documents"
-			      "Music"
-			      "Projects"
-			      "Pictures"
-			      "Templates"
-			      "Videos"
-			      ".gnupg"
-			      ".mozilla"
-			      ".tor project"
-			      ".ssh"
-			      ".local/state/shepherd"
-			      ".local/share/direnv"
-			      ".local/share/Trash"
-			      ".config/librewolf"
-			      ".config/emacs"
-			      ".cache/emacs"
-			      ".cache/guix"))
-
-(define %luks
-  (mapped-device
-   (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
-   (target "Guix")
-   (type luks-device-mapping)))
-
-(define %persist
-  (file-system
-   (mount-point "/persist")
-   (device "/dev/mapper/Guix")
-   (type "btrfs")
-   (needed-for-boot? #t)
-   (create-mount-point? #t)
-   (flags '(no-atime no-suid))
-   (options "subvol=persist,compress=zstd,space_cache=v2")
-   (dependencies (list %luks))))
 
 ;; Exported for use in generating an image for system installation.
 (define taurinus-alpha-record
@@ -68,22 +25,14 @@
    (inherit base-system)
    (host-name "taurinus-alpha")
 
-   (mapped-devices (list %luks))
+   (mapped-devices
+    (list (mapped-device
+	   (source (uuid "72859a88-811b-456e-98d6-40e34fc39ed0"))
+	   (target "Guix")
+	   (type luks-device-mapping))))
 
    (file-systems
     (cons* 
-     ;; Partitions/Sub-volumes
-     ;; Ephemeral root.
-     (file-system
-      (mount-point "/")
-      (device "none")
-      (type "tmpfs")
-      (create-mount-point? #t)
-      (needed-for-boot? #t)
-      (check? #f)
-      (flags '(no-dev no-atime no-diratime no-suid))
-      (options "size=25%,mode=755"))
-
      ;; Boot partition.
      (file-system
       (mount-point "/boot/efi")
@@ -94,47 +43,22 @@
       (flags '(no-exec))
       (options "umask=0077"))
 
-     ;; Mounting for the store.
+     ;; Data sub-volume.
      (file-system
-      (mount-point "/gnu")
+      (mount-point "/")
       (device "/dev/mapper/Guix")
       (type "btrfs")
-      (create-mount-point? #t)
       (needed-for-boot? #t)
-      (flags '(no-atime no-diratime))
-      (options "subvol=gnu,compress=zstd,space_cache=v2")
-      (dependencies (list %luks)))
+      (create-mount-point? #t)
+      (flags '(no-atime no-suid))
+      (options "compress=zstd,space_cache=v2")
+      (dependencies mapped-devices))
 
-     ;; Persistence sub-volume.
-     %persist
-
-     ;; System Bind-Mounts
-     (append (map (lambda (path)
-		    (file-system
-		     (mount-point path)
-		     (device (string-append "/persist" path))
-		     (type "none")
-		     (create-mount-point? #t)
-		     (needed-for-boot? #t)
-		     (flags '(bind-mount))
-		     (dependencies (list %persist))))
-		  %system-bind-mounts)
-
-	     ;; Home Bind-Mounts
-	     (map (lambda (path)
-		    (file-system
-		     (mount-point (string-append "/home/" %my-user "/" path))
-		     (device (string-append "/persist/home/" %my-user "/" path))
-		     (type "none")
-		     (create-mount-point? #t)
-		     (flags '(bind-mount))))
-		  %home-bind-mounts)
-	     
-	     %base-file-systems)))
+     %base-file-systems))
 
    (swap-devices
     (list (swap-space
-	   (target "/persist/swapfile")
+	   (target "/swapfile")
 	   (dependencies (filter (file-system-mount-point-predicate "/persist")
 				 file-systems)))))
 
